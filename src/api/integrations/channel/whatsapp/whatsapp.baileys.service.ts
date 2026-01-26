@@ -605,9 +605,17 @@ export class BaileysStartupService extends ChannelStartupService {
       this.logger.info(`Browser: ${browser}`);
     }
 
-    const baileysVersion = await fetchLatestWaWebVersion({});
-    const version = baileysVersion.version;
-    const log = `Baileys version: ${version.join('.')}`;
+    let version;
+    let log;
+
+    if (session.VERSION) {
+      version = session.VERSION.split('.');
+      log = `Baileys version env: ${version.join('.')}`;
+    } else {
+      const baileysVersion = await fetchLatestWaWebVersion({});
+      version = baileysVersion.version;
+      log = `Baileys version: ${version.join('.')}`;
+    }
 
     this.logger.info(log);
 
@@ -661,7 +669,7 @@ export class BaileysStartupService extends ChannelStartupService {
       msgRetryCounterCache: this.msgRetryCounterCache,
       generateHighQualityLinkPreview: true,
       getMessage: async (key) => (await this.getMessage(key)) as Promise<proto.IMessage>,
-      ...browserOptions,
+      // ...browserOptions,
       markOnlineOnConnect: this.localSettings.alwaysOnline,
       retryRequestDelayMs: 350,
       maxMsgRetryCount: 4,
