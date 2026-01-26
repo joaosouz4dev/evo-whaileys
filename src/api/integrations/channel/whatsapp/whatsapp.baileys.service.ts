@@ -426,10 +426,24 @@ export class BaileysStartupService extends ChannelStartupService {
     if (connection === 'close') {
       const statusCode = (lastDisconnect?.error as Boom)?.output?.statusCode;
       const codesToNotReconnect = [DisconnectReason.loggedOut, DisconnectReason.forbidden, 402, 406];
+      
+      // FIX: Do not reconnect if it's the initial connection (waiting for QR code)
+      // This prevents infinite loop that blocks QR code generation
+      const isInitialConnection = !this.instance.wuid && (this.instance.qrcode?.count ?? 0) === 0;
+      
+      if (isInitialConnection) {
+        this.logger.info('Initial connection closed, waiting for QR code generation...');
+        return;
+      }
+      
       const shouldReconnect = !codesToNotReconnect.includes(statusCode);
       if (shouldReconnect) {
+        this.logger.warn(`Connection lost (status: ${statusCode}), reconnecting...`);
         await this.connectToWhatsapp(this.phoneNumber);
       } else {
+        this.logger.info(
+          `Skipping reconnection for status code ${statusCode} (code is in codesToNotReconnect list)`,
+        );
         this.sendDataWebhook(Events.STATUS_INSTANCE, {
           instance: this.instance.name,
           status: 'closed',
