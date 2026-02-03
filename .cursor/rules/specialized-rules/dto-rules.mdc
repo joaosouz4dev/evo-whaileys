@@ -11,6 +11,7 @@ alwaysApply: false
 ## DTO Structure Pattern
 
 ### Basic DTO Class
+
 ```typescript
 export class ExampleDto {
   name: string;
@@ -25,6 +26,7 @@ export class ExampleDto {
 ## Inheritance Pattern
 
 ### DTO Inheritance
+
 ```typescript
 // CORRECT - Evolution API pattern
 export class InstanceDto extends IntegrationDto {
@@ -88,6 +90,7 @@ export class InstanceDto extends IntegrationDto {
 ## Base DTO Pattern
 
 ### Base Chatbot DTO
+
 ```typescript
 /**
  * Base DTO for all chatbot integrations
@@ -133,6 +136,7 @@ export class BaseChatbotSettingDto {
 ## Message DTO Patterns
 
 ### Send Message DTOs
+
 ```typescript
 export class Metadata {
   number: string;
@@ -174,6 +178,7 @@ export class SendTemplateDto extends Metadata {
 ## Simple DTO Patterns
 
 ### Basic DTOs
+
 ```typescript
 export class NumberDto {
   number: string;
@@ -203,6 +208,7 @@ export class WhatsAppNumberDto {
 ## Complex DTO Patterns
 
 ### Business DTOs
+
 ```typescript
 export class getCatalogDto {
   number?: string;
@@ -232,6 +238,7 @@ export class NumberBusiness {
 ## Settings DTO Pattern
 
 ### Settings Configuration
+
 ```typescript
 export class SettingsDto {
   rejectCall?: boolean;
@@ -256,6 +263,7 @@ export class ProxyDto {
 ## Presence DTO Pattern
 
 ### WhatsApp Presence
+
 ```typescript
 export class SetPresenceDto {
   presence: WAPresence;
@@ -270,6 +278,7 @@ export class SendPresenceDto {
 ## DTO Structure (No Decorators)
 
 ### Simple DTO Classes (Evolution API Pattern)
+
 ```typescript
 // CORRECT - Evolution API pattern (no decorators)
 export class ExampleDto {
@@ -290,9 +299,10 @@ export class ValidatedDto {
 ## Type Safety Patterns
 
 ### Prisma Type Integration
+
 ```typescript
 import { JsonValue } from '@prisma/client/runtime/library';
-import { WAPresence } from 'baileys';
+import { WAPresence } from 'whaileys';
 import { TriggerOperator, TriggerType } from '@prisma/client';
 
 export class TypeSafeDto {
@@ -306,6 +316,7 @@ export class TypeSafeDto {
 ## DTO Documentation
 
 ### JSDoc Comments
+
 ```typescript
 /**
  * DTO for creating WhatsApp templates
@@ -335,6 +346,7 @@ export class TemplateDto {
 ## DTO Naming Conventions
 
 ### Standard Naming Patterns
+
 - `*Dto` - Data transfer objects
 - `Create*Dto` - Creation DTOs
 - `Update*Dto` - Update DTOs
@@ -345,6 +357,7 @@ export class TemplateDto {
 ## File Organization
 
 ### DTO File Structure
+
 ```
 src/api/dto/
 ├── instance.dto.ts          # Main instance DTO
@@ -362,6 +375,7 @@ src/api/dto/
 ## Integration DTO Patterns
 
 ### Chatbot Integration DTOs
+
 ```typescript
 // Base for all chatbot DTOs
 export class BaseChatbotDto {
@@ -387,6 +401,7 @@ export class OpenaiDto extends BaseChatbotDto {
 ## DTO Testing Pattern
 
 ### DTO Validation Tests
+
 ```typescript
 describe('ExampleDto', () => {
   it('should validate required fields', () => {
@@ -418,6 +433,7 @@ describe('ExampleDto', () => {
 ## DTO Transformation
 
 ### Request to DTO Mapping (Evolution API Pattern)
+
 ```typescript
 // CORRECT - Evolution API uses RouterBroker dataValidate
 const response = await this.dataValidate<ExampleDto>({

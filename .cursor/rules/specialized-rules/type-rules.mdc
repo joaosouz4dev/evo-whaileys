@@ -14,7 +14,7 @@ alwaysApply: false
 ```typescript
 /* eslint-disable @typescript-eslint/no-namespace */
 import { JsonValue } from '@prisma/client/runtime/library';
-import { AuthenticationState, WAConnectionState } from 'baileys';
+import { AuthenticationState, WAConnectionState } from 'whaileys';
 
 export declare namespace wa {
   export type QrCode = {
@@ -379,7 +379,7 @@ export interface InstanceResponse extends ApiResponse {
 
 ### Baileys Types Extension
 ```typescript
-import { WASocket, ConnectionState, DisconnectReason } from 'baileys';
+import { WASocket, ConnectionState, DisconnectReason } from 'whaileys';
 
 export interface BaileysInstance {
   client: WASocket;

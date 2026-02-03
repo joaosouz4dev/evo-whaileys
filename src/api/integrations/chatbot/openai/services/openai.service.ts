@@ -5,13 +5,22 @@ import { ConfigService, Language, Openai as OpenaiConfig } from '@config/env.con
 import { IntegrationSession, OpenaiBot, OpenaiSetting } from '@prisma/client';
 import { sendTelemetry } from '@utils/sendTelemetry';
 import axios from 'axios';
-import { downloadMediaMessage } from 'baileys';
 import { isURL } from 'class-validator';
 import FormData from 'form-data';
 import OpenAI from 'openai';
 import P from 'pino';
+import { downloadMediaMessage } from 'whaileys';
 
 import { BaseChatbotService } from '../../base-chatbot.service';
+
+async function ensureBuffer(result: Buffer | import('stream').Transform): Promise<Buffer> {
+  if (Buffer.isBuffer(result)) return result;
+  const chunks: Buffer[] = [];
+  for await (const chunk of result as AsyncIterable<Buffer | Uint8Array>) {
+    chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+  }
+  return Buffer.concat(chunks);
+}
 
 /**
  * OpenAI service that extends the common BaseChatbotService
@@ -700,7 +709,7 @@ export class OpenaiService extends BaseChatbotService<OpenaiBot, OpenaiSetting> 
       audio = Buffer.from(msg.message.base64, 'base64');
     } else {
       // Fallback for raw WhatsApp audio messages that need downloadMediaMessage
-      audio = await downloadMediaMessage(
+      const audioResult = await downloadMediaMessage(
         { key: msg.key, message: msg?.message },
         'buffer',
         {},
@@ -709,6 +718,7 @@ export class OpenaiService extends BaseChatbotService<OpenaiBot, OpenaiSetting> 
           reuploadRequest: instance,
         },
       );
+      audio = await ensureBuffer(audioResult as Buffer | import('stream').Transform);
     }
 
     const lang = this.configService.get<Language>('LANGUAGE').includes('pt')

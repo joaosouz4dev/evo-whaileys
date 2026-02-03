@@ -1,4 +1,4 @@
-import { proto, WAPresence } from 'baileys';
+import { proto, WAPresence } from 'whaileys';
 
 export class Quoted {
   key: proto.IMessageKey;

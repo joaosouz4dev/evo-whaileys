@@ -1,5 +1,5 @@
-import { ConnectionState, WAConnectionState, WASocket } from 'baileys';
 import { io, Socket } from 'socket.io-client';
+import { ConnectionState, WAConnectionState, WASocket } from 'whaileys';
 
 import { ClientToServerEvents, ServerToClientEvents } from './transport.type';
 
@@ -71,8 +71,7 @@ export const useVoiceCallsBaileys = async (
 
   socket.on('assertSessions', async (jids, force, callback) => {
     try {
-      const response = await baileys_sock.assertSessions(jids);
-
+      const response = await baileys_sock.assertSessions(jids, force ?? false);
       callback(response);
 
       if (logger) console.log('[*] Success on call assertSessions function', response);
@@ -83,8 +82,12 @@ export const useVoiceCallsBaileys = async (
 
   socket.on('createParticipantNodes', async (jids, message, extraAttrs, callback) => {
     try {
-      const response = await baileys_sock.createParticipantNodes(jids, message, extraAttrs);
-
+      const sock = baileys_sock as any;
+      if (typeof sock.createParticipantNodes !== 'function') {
+        callback(undefined, false);
+        return;
+      }
+      const response = await sock.createParticipantNodes(jids, message, extraAttrs);
       callback(response, true);
 
       if (logger) console.log('[*] Success on call createParticipantNodes function', response);
@@ -132,12 +135,16 @@ export const useVoiceCallsBaileys = async (
 
   socket.on('signalRepository:decryptMessage', async (jid, type, ciphertext, callback) => {
     try {
-      const response = await baileys_sock.signalRepository.decryptMessage({
+      const sock = baileys_sock as any;
+      if (typeof sock.signalRepository?.decryptMessage !== 'function') {
+        callback(undefined);
+        return;
+      }
+      const response = await sock.signalRepository.decryptMessage({
         jid: jid,
         type: type,
         ciphertext: ciphertext,
       });
-
       callback(response);
 
       if (logger) console.log('[*] Success on call signalRepository:decryptMessage function', response);

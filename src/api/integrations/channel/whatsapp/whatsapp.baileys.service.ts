@@ -90,49 +90,6 @@ import useMultiFileAuthStatePrisma from '@utils/use-multi-file-auth-state-prisma
 import { AuthStateProvider } from '@utils/use-multi-file-auth-state-provider-files';
 import { useMultiFileAuthStateRedisDb } from '@utils/use-multi-file-auth-state-redis-db';
 import axios from 'axios';
-import makeWASocket, {
-  AnyMessageContent,
-  BufferedEventData,
-  BufferJSON,
-  CacheStore,
-  CatalogCollection,
-  Chat,
-  ConnectionState,
-  Contact,
-  decryptPollVote,
-  delay,
-  DisconnectReason,
-  downloadContentFromMessage,
-  downloadMediaMessage,
-  generateWAMessageFromContent,
-  getAggregateVotesInPollMessage,
-  GetCatalogOptions,
-  getContentType,
-  getDevice,
-  GroupMetadata,
-  isJidBroadcast,
-  isJidGroup,
-  isJidNewsletter,
-  isPnUser,
-  jidNormalizedUser,
-  makeCacheableSignalKeyStore,
-  MessageUpsertType,
-  MessageUserReceiptUpdate,
-  MiscMessageGenerationOptions,
-  ParticipantAction,
-  prepareWAMessageMedia,
-  Product,
-  proto,
-  UserFacingSocketConfig,
-  WABrowserDescription,
-  WAMediaUpload,
-  WAMessage,
-  WAMessageKey,
-  WAPresence,
-  WASocket,
-} from 'baileys';
-import { Label } from 'baileys/lib/Types/Label';
-import { LabelAssociation } from 'baileys/lib/Types/LabelAssociation';
 import { spawn } from 'child_process';
 import { isArray, isBase64, isURL } from 'class-validator';
 import { createHash } from 'crypto';
@@ -143,7 +100,6 @@ import Long from 'long';
 import mimeTypes from 'mime-types';
 import NodeCache from 'node-cache';
 import cron from 'node-cron';
-import { release } from 'os';
 import { join } from 'path';
 import P from 'pino';
 import qrcode, { QRCodeToDataURLOptions } from 'qrcode';
@@ -151,9 +107,56 @@ import qrcodeTerminal from 'qrcode-terminal';
 import sharp from 'sharp';
 import { PassThrough, Readable } from 'stream';
 import { v4 } from 'uuid';
+import makeWASocket, {
+  AnyMessageContent,
+  BufferedEventData,
+  BufferJSON,
+  CatalogCollection,
+  Chat,
+  ConnectionState,
+  Contact,
+  delay,
+  DisconnectReason,
+  downloadContentFromMessage,
+  downloadMediaMessage,
+  generateWAMessageFromContent,
+  getAggregateVotesInPollMessage,
+  getContentType,
+  getDevice,
+  GroupMetadata,
+  isJidBroadcast,
+  isJidGroup,
+  isJidNewsletter,
+  isJidUser,
+  jidNormalizedUser,
+  Label,
+  LabelAssociation,
+  makeCacheableSignalKeyStore,
+  MessageUpsertType,
+  MessageUserReceiptUpdate,
+  MiscMessageGenerationOptions,
+  ParticipantAction,
+  prepareWAMessageMedia,
+  Product,
+  proto,
+  UserFacingSocketConfig,
+  WAMediaUpload,
+  WAMessage,
+  WAMessageKey,
+  WAPresence,
+  WASocket,
+} from 'whaileys';
 
 import { BaileysMessageProcessor } from './baileysMessage.processor';
 import { useVoiceCallsBaileys } from './voiceCalls/useVoiceCallsBaileys';
+
+async function streamToBuffer(stream: NodeJS.ReadableStream): Promise<Buffer> {
+  const chunks: Buffer[] = [];
+  for await (const chunk of stream as AsyncIterable<Buffer | Uint8Array>) {
+    chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+  }
+  return Buffer.concat(chunks);
+}
 
 export interface ExtendedIMessageKey extends proto.IMessageKey {
   remoteJidAlt?: string;
@@ -246,8 +249,8 @@ export class BaileysStartupService extends ChannelStartupService {
   }
 
   private authStateProvider: AuthStateProvider;
-  private readonly msgRetryCounterCache: CacheStore = new NodeCache();
-  private readonly userDevicesCache: CacheStore = new NodeCache({ stdTTL: 300000, useClones: false });
+  private readonly msgRetryCounterCache: NodeCache = new NodeCache();
+  private readonly userDevicesCache: NodeCache = new NodeCache({ stdTTL: 300000, useClones: false });
   private endSession = false;
   private logBaileys = this.configService.get<Log>('LOG').BAILEYS;
   private eventProcessingQueue: Promise<void> = Promise.resolve();
@@ -426,24 +429,22 @@ export class BaileysStartupService extends ChannelStartupService {
     if (connection === 'close') {
       const statusCode = (lastDisconnect?.error as Boom)?.output?.statusCode;
       const codesToNotReconnect = [DisconnectReason.loggedOut, DisconnectReason.forbidden, 402, 406];
-      
+
       // FIX: Do not reconnect if it's the initial connection (waiting for QR code)
       // This prevents infinite loop that blocks QR code generation
       const isInitialConnection = !this.instance.wuid && (this.instance.qrcode?.count ?? 0) === 0;
-      
+
       if (isInitialConnection) {
         this.logger.info('Initial connection closed, waiting for QR code generation...');
         return;
       }
-      
+
       const shouldReconnect = !codesToNotReconnect.includes(statusCode);
       if (shouldReconnect) {
         this.logger.warn(`Connection lost (status: ${statusCode}), reconnecting...`);
         await this.connectToWhatsapp(this.phoneNumber);
       } else {
-        this.logger.info(
-          `Skipping reconnection for status code ${statusCode} (code is in codesToNotReconnect list)`,
-        );
+        this.logger.info(`Skipping reconnection for status code ${statusCode} (code is in codesToNotReconnect list)`);
         this.sendDataWebhook(Events.STATUS_INSTANCE, {
           instance: this.instance.name,
           status: 'closed',
@@ -592,17 +593,10 @@ export class BaileysStartupService extends ChannelStartupService {
 
     const session = this.configService.get<ConfigSessionPhone>('CONFIG_SESSION_PHONE');
 
-    let browserOptions = {};
-
     if (number || this.phoneNumber) {
       this.phoneNumber = number;
 
       this.logger.info(`Phone number: ${number}`);
-    } else {
-      const browser: WABrowserDescription = [session.CLIENT, session.NAME, release()];
-      browserOptions = { browser };
-
-      this.logger.info(`Browser: ${browser}`);
     }
 
     let version;
@@ -669,7 +663,6 @@ export class BaileysStartupService extends ChannelStartupService {
       msgRetryCounterCache: this.msgRetryCounterCache,
       generateHighQualityLinkPreview: true,
       getMessage: async (key) => (await this.getMessage(key)) as Promise<proto.IMessage>,
-      // ...browserOptions,
       markOnlineOnConnect: this.localSettings.alwaysOnline,
       retryRequestDelayMs: 350,
       maxMsgRetryCount: 4,
@@ -1128,7 +1121,7 @@ export class BaileysStartupService extends ChannelStartupService {
             const text = received.message?.conversation || received.message?.extendedTextMessage?.text;
 
             if (text == 'requestPlaceholder' && !requestId) {
-              const messageId = await this.client.requestPlaceholderResend(received.key);
+              const messageId = await this.client.requestPlaceholderResend([{ messageKey: received.key }]);
 
               console.log('requested placeholder resync, id=', messageId);
             } else if (requestId) {
@@ -1281,15 +1274,11 @@ export class BaileysStartupService extends ChannelStartupService {
 
                 let decryptedVote;
 
-                for (const creator of uniqueCreators) {
+                for (const _creator of uniqueCreators) {
                   for (const voter of uniqueVoters) {
                     try {
-                      decryptedVote = decryptPollVote(pollVote, {
-                        pollCreatorJid: creator,
-                        pollMsgId: pollMessage.key.id,
-                        pollEncKey,
-                        voterJid: voter,
-                      } as any);
+                      // whaileys não exporta decryptPollVote; voto permanece criptografado
+                      decryptedVote = undefined;
                       if (decryptedVote) {
                         successfulVoterJid = voter;
                         break;
@@ -1795,13 +1784,7 @@ export class BaileysStartupService extends ChannelStartupService {
         // Filtra apenas os participantes que estão no evento
         const resolvedParticipants = participantsUpdate.participants.map((participantId) => {
           const participantData = groupParticipants.participants.find((p) => p.id === participantId);
-
-          let phoneNumber: string;
-          if (participantData?.phoneNumber) {
-            phoneNumber = participantData.phoneNumber;
-          } else {
-            phoneNumber = normalizePhoneNumber(participantId);
-          }
+          const phoneNumber = normalizePhoneNumber(participantData?.id ?? participantId);
 
           return {
             jid: participantId,
@@ -1854,12 +1837,12 @@ export class BaileysStartupService extends ChannelStartupService {
             color: `${label.color}`,
             name: labelName,
             labelId: label.id,
-            predefinedId: label.predefinedId,
+            predefinedId: String(label.predefinedId),
             instanceId: this.instanceId,
           };
           await this.prismaRepository.label.upsert({
-            where: { labelId_instanceId: { instanceId: labelData.instanceId, labelId: labelData.labelId } },
-            update: labelData,
+            where: { labelId_instanceId: { instanceId: this.instanceId, labelId: label.id } },
+            update: { color: labelData.color, name: labelData.name, predefinedId: labelData.predefinedId },
             create: labelData,
           });
         }
@@ -1911,7 +1894,10 @@ export class BaileysStartupService extends ChannelStartupService {
 
               if (settings?.msgCall?.trim().length > 0 && call.status == 'offer') {
                 if (call.from.endsWith('@lid')) {
-                  call.from = await this.client.signalRepository.lidMapping.getPNForLID(call.from as string);
+                  const sock = this.client as any;
+                  if (typeof sock.signalRepository?.lidMapping?.getPNForLID === 'function') {
+                    call.from = await sock.signalRepository.lidMapping.getPNForLID(call.from as string);
+                  }
                 }
                 const msg = await this.client.sendMessage(call.from, { text: settings.msgCall });
 
@@ -2185,7 +2171,7 @@ export class BaileysStartupService extends ChannelStartupService {
         quoted,
       });
       const id = await this.client.relayMessage(sender, message, { messageId });
-      m.key = { id: id, remoteJid: sender, participant: isPnUser(sender) ? sender : undefined, fromMe: true };
+      m.key = { id: id, remoteJid: sender, participant: isJidUser(sender) ? sender : undefined, fromMe: true };
       for (const [key, value] of Object.entries(m)) {
         if (!value || (isArray(value) && value.length) === 0) {
           delete m[key];
@@ -3699,7 +3685,7 @@ export class BaileysStartupService extends ChannelStartupService {
     try {
       const keys: proto.IMessageKey[] = [];
       data.readMessages.forEach((read) => {
-        if (isJidGroup(read.remoteJid) || isPnUser(read.remoteJid)) {
+        if (isJidGroup(read.remoteJid) || isJidUser(read.remoteJid)) {
           keys.push({ remoteJid: read.remoteJid, fromMe: read.fromMe, id: read.id });
         }
       });
@@ -3918,12 +3904,13 @@ export class BaileysStartupService extends ChannelStartupService {
       let buffer: Buffer;
 
       try {
-        buffer = await downloadMediaMessage(
+        const mediaResult = await downloadMediaMessage(
           { key: msg?.key, message: msg?.message },
           'buffer',
           {},
           { logger: P({ level: 'error' }) as any, reuploadRequest: this.client.updateMediaMessage },
         );
+        buffer = Buffer.isBuffer(mediaResult) ? mediaResult : Buffer.from(await streamToBuffer(mediaResult));
       } catch {
         this.logger.error('Download Media failed, trying to retry in 5 seconds...');
         await new Promise((resolve) => setTimeout(resolve, 5000));
@@ -4121,10 +4108,13 @@ export class BaileysStartupService extends ChannelStartupService {
 
   public async removeProfilePicture() {
     try {
-      await this.client.removeProfilePicture(this.instance.wuid);
-
+      const sock = this.client as any;
+      if (typeof sock.removeProfilePicture === 'function') {
+        await sock.removeProfilePicture(this.instance.wuid);
+      } else {
+        throw new Error('removeProfilePicture not available in this socket');
+      }
       this.reloadConnection();
-
       return { update: 'success' };
     } catch (error) {
       throw new InternalServerErrorException('Error removing profile picture', error.toString());
@@ -4859,13 +4849,16 @@ export class BaileysStartupService extends ChannelStartupService {
   }
 
   public async baileysAssertSessions(jids: string[]) {
-    const response = await this.client.assertSessions(jids);
-
+    const response = await this.client.assertSessions(jids, false);
     return response;
   }
 
   public async baileysCreateParticipantNodes(jids: string[], message: proto.IMessage, extraAttrs: any) {
-    const response = await this.client.createParticipantNodes(jids, message, extraAttrs);
+    const sock = this.client as any;
+    if (typeof sock.createParticipantNodes !== 'function') {
+      throw new BadRequestException('createParticipantNodes not available in this socket');
+    }
+    const response = await sock.createParticipantNodes(jids, message, extraAttrs);
 
     const convertedResponse = {
       ...response,
@@ -4902,9 +4895,12 @@ export class BaileysStartupService extends ChannelStartupService {
 
   public async baileysSignalRepositoryDecryptMessage(jid: string, type: 'pkmsg' | 'msg', ciphertext: string) {
     try {
+      const sock = this.client as any;
+      if (typeof sock.signalRepository?.decryptMessage !== 'function') {
+        throw new BadRequestException('signalRepository.decryptMessage not available in this socket');
+      }
       const ciphertextBuffer = Buffer.from(ciphertext, 'base64');
-
-      const response = await this.client.signalRepository.decryptMessage({ jid, type, ciphertext: ciphertextBuffer });
+      const response = await sock.signalRepository.decryptMessage({ jid, type, ciphertext: ciphertextBuffer });
 
       return response instanceof Uint8Array ? Buffer.from(response).toString('base64') : response;
     } catch (error) {
@@ -4974,18 +4970,20 @@ export class BaileysStartupService extends ChannelStartupService {
   public async getCatalog({
     jid,
     limit,
-    cursor,
-  }: GetCatalogOptions): Promise<{ products: Product[]; nextPageCursor: string | undefined }> {
+  }: {
+    jid?: string;
+    limit?: number;
+    cursor?: string;
+  }): Promise<{ products: Product[]; nextPageCursor: string | undefined }> {
     try {
-      jid = jid ? createJid(jid) : this.instance.wuid;
-
-      const catalog = await this.client.getCatalog({ jid, limit: limit, cursor: cursor });
+      const resolvedJid = jid ? createJid(jid) : this.instance.wuid;
+      const catalog = await this.client.getCatalog(resolvedJid, limit);
 
       if (!catalog) {
-        return { products: undefined, nextPageCursor: undefined };
+        return { products: [], nextPageCursor: undefined };
       }
 
-      return catalog;
+      return { products: catalog.products ?? [], nextPageCursor: undefined };
     } catch (error) {
       throw new InternalServerErrorException('Error getCatalog', error.toString());
     }

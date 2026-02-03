@@ -4,11 +4,20 @@ import { Integration } from '@api/types/wa.types';
 import { ConfigService, HttpServer } from '@config/env.config';
 import { Evoai, EvoaiSetting, IntegrationSession } from '@prisma/client';
 import axios from 'axios';
-import { downloadMediaMessage } from 'baileys';
 import { isURL } from 'class-validator';
 import { v4 as uuidv4 } from 'uuid';
+import { downloadMediaMessage } from 'whaileys';
 
 import { BaseChatbotService } from '../../base-chatbot.service';
+
+async function ensureBuffer(result: Buffer | import('stream').Transform): Promise<Buffer> {
+  if (Buffer.isBuffer(result)) return result;
+  const chunks: Buffer[] = [];
+  for await (const chunk of result as AsyncIterable<Buffer | Uint8Array>) {
+    chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+  }
+  return Buffer.concat(chunks);
+}
 import { OpenaiService } from '../../openai/services/openai.service';
 
 export class EvoaiService extends BaseChatbotService<Evoai, EvoaiSetting> {
@@ -107,8 +116,9 @@ export class EvoaiService extends BaseChatbotService<Evoai, EvoaiSetting> {
             }
           } else {
             // Download the image
-            const mediaBuffer = await downloadMediaMessage(msg, 'buffer', {});
-            const fileContent = Buffer.from(mediaBuffer).toString('base64');
+            const mediaResult = await downloadMediaMessage(msg, 'buffer', {});
+            const mediaBuffer = await ensureBuffer(mediaResult as Buffer | import('stream').Transform);
+            const fileContent = mediaBuffer.toString('base64');
             const fileName = media[2] || `${msg.key?.id || 'image'}.jpg`;
 
             parts.push({

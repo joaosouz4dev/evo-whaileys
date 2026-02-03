@@ -1,4 +1,4 @@
-import { BinaryNode, Contact, JidWithDevice, proto, WAConnectionState } from 'baileys';
+import { BinaryNode, Contact, JidWithDevice, proto, WAConnectionState } from 'whaileys';
 
 export interface ServerToClientEvents {
   withAck: (d: string, callback: (e: number) => void) => void;

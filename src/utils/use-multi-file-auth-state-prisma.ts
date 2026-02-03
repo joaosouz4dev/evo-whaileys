@@ -3,9 +3,9 @@ import { CacheService } from '@api/services/cache.service';
 import { CacheConf, configService } from '@config/env.config';
 import { Logger } from '@config/logger.config';
 import { INSTANCE_DIR } from '@config/path.config';
-import { AuthenticationState, BufferJSON, initAuthCreds, WAProto as proto } from 'baileys';
 import fs from 'fs/promises';
 import path from 'path';
+import { AuthenticationState, BufferJSON, initAuthCreds, WAProto as proto } from 'whaileys';
 
 const fixFileName = (file: string): string | undefined => {
   if (!file) {

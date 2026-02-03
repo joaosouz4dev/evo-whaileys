@@ -1,8 +1,8 @@
 import { ICache } from '@api/abstract/abstract.cache';
 import { CacheConf, CacheConfRedis, ConfigService } from '@config/env.config';
 import { Logger } from '@config/logger.config';
-import { BufferJSON } from 'baileys';
 import { RedisClientType } from 'redis';
+import { BufferJSON } from 'whaileys';
 
 import { redisClient } from './rediscache.client';
 

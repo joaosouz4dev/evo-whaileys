@@ -53,7 +53,7 @@ if (configService.get<Chatwoot>('CHATWOOT').ENABLED) {
 }
 
 export const cache = new CacheService(new CacheEngine(configService, 'instance').getEngine());
-const baileysCache = new CacheService(new CacheEngine(configService, 'baileys').getEngine());
+const baileysCache = new CacheService(new CacheEngine(configService, 'whaileys').getEngine());
 
 let providerFiles: ProviderFiles = null;
 if (configService.get<ProviderSession>('PROVIDER').ENABLED) {

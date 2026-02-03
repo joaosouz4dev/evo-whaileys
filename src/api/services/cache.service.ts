@@ -1,6 +1,6 @@
 import { ICache } from '@api/abstract/abstract.cache';
 import { Logger } from '@config/logger.config';
-import { BufferJSON } from 'baileys';
+import { BufferJSON } from 'whaileys';
 
 export class CacheService {
   private readonly logger = new Logger('CacheService');

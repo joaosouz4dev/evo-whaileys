@@ -23,7 +23,6 @@ import { Chatwoot as ChatwootModel, Contact as ContactModel, Message as MessageM
 import i18next from '@utils/i18n';
 import { sendTelemetry } from '@utils/sendTelemetry';
 import axios from 'axios';
-import { WAMessageContent, WAMessageKey } from 'baileys';
 import dayjs from 'dayjs';
 import FormData from 'form-data';
 import { Jimp, JimpMime } from 'jimp';
@@ -32,6 +31,7 @@ import Long from 'long';
 import mimeTypes from 'mime-types';
 import path from 'path';
 import { Readable } from 'stream';
+import { WAMessageContent, WAMessageKey } from 'whaileys';
 
 interface ChatwootMessage {
   messageId?: number;

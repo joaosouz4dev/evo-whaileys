@@ -1,6 +1,6 @@
 import { CacheService } from '@api/services/cache.service';
 import { Logger } from '@config/logger.config';
-import { AuthenticationCreds, AuthenticationState, initAuthCreds, proto, SignalDataTypeMap } from 'baileys';
+import { AuthenticationCreds, AuthenticationState, initAuthCreds, proto, SignalDataTypeMap } from 'whaileys';
 
 export async function useMultiFileAuthStateRedisDb(
   instanceName: string,

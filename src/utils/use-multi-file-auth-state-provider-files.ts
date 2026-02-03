@@ -36,8 +36,15 @@
 
 import { ProviderFiles } from '@api/provider/sessions';
 import { Logger } from '@config/logger.config';
-import { AuthenticationCreds, AuthenticationState, BufferJSON, initAuthCreds, proto, SignalDataTypeMap } from 'baileys';
 import { isNotEmpty } from 'class-validator';
+import {
+  AuthenticationCreds,
+  AuthenticationState,
+  BufferJSON,
+  initAuthCreds,
+  proto,
+  SignalDataTypeMap,
+} from 'whaileys';
 
 export type AuthState = {
   state: AuthenticationState;

@@ -1,8 +1,8 @@
 import { ICache } from '@api/abstract/abstract.cache';
 import { CacheConf, CacheConfLocal, ConfigService } from '@config/env.config';
 import { Logger } from '@config/logger.config';
-import { BufferJSON } from 'baileys';
 import NodeCache from 'node-cache';
+import { BufferJSON } from 'whaileys';
 
 export class LocalCache implements ICache {
   private readonly logger = new Logger('LocalCache');
