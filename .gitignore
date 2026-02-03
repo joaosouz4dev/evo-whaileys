@@ -1,5 +1,6 @@
 # Repo
 Baileys
+.husky-node-path
 # compiled output
 /dist
 /node_modules

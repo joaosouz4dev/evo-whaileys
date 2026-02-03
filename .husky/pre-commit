@@ -1,1 +1,27 @@
-npx lint-staged
+# Garantir que Node esteja no PATH (Git no Windows pode não herdar o PATH do terminal)
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+if ! command -v node >/dev/null 2>&1; then
+  if [ -f "$ROOT/.husky-node-path" ]; then
+    NODE_DIR="$(cat "$ROOT/.husky-node-path" | tr -d '\r\n')"
+    export PATH="$NODE_DIR:$PATH"
+  else
+    case "$(uname -s)" in
+      MINGW*|MSYS*|CYGWIN*)
+        for dir in "/c/Program Files/nodejs" "/c/Program Files (x86)/nodejs" \
+          "$HOME/scoop/apps/nodejs/current/bin" "$HOME/scoop/apps/nodejs/current" \
+          "$HOME/scoop/apps/nodejs-lts/current/bin" "$HOME/scoop/apps/nodejs-lts/current" \
+          "$HOME/AppData/Roaming/nvm/current" "$HOME/AppData/Local/fnm"; do
+          [ -x "$dir/node.exe" ] && export PATH="$dir:$PATH" && break
+          [ -x "$dir/node" ] && export PATH="$dir:$PATH" && break
+        done
+        ;;
+    esac
+  fi
+fi
+if ! command -v node >/dev/null 2>&1; then
+  echo "husky - pre-commit: node não encontrado no PATH; pulando lint-staged. Para corrigir:"
+  echo "  1. Crie o arquivo .husky-node-path na raiz do projeto com o caminho da pasta do Node (ex: C:\\Program Files\\nodejs)"
+  echo "  2. Ou adicione Node ao PATH do sistema nas variáveis de ambiente do Windows"
+  exit 0
+fi
+cd "$ROOT" && node_modules/.bin/lint-staged
