@@ -160,7 +160,7 @@
         "file_storage_integration"
       ],
       "whatsapp_integrations": [
-        "baileys",
+        "whaileys",
         "meta_business_api",
         "whatsapp_cloud_api"
       ],

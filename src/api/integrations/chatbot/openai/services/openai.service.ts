@@ -5,7 +5,7 @@ import { ConfigService, Language, Openai as OpenaiConfig } from '@config/env.con
 import { IntegrationSession, OpenaiBot, OpenaiSetting } from '@prisma/client';
 import { sendTelemetry } from '@utils/sendTelemetry';
 import axios from 'axios';
-import { downloadMediaMessage } from 'baileys';
+import { downloadMediaMessage } from 'whaileys';
 import { isURL } from 'class-validator';
 import FormData from 'form-data';
 import OpenAI from 'openai';

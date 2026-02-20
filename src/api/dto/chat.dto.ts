@@ -5,7 +5,7 @@ import {
   WAPrivacyOnlineValue,
   WAPrivacyValue,
   WAReadReceiptsValue,
-} from 'baileys';
+} from 'whaileys';
 
 export class OnWhatsAppDto {
   constructor(

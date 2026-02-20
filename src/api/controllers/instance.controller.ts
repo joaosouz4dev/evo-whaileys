@@ -10,7 +10,7 @@ import { Events, Integration, wa } from '@api/types/wa.types';
 import { Auth, Chatwoot, ConfigService, HttpServer, WaBusiness } from '@config/env.config';
 import { Logger } from '@config/logger.config';
 import { BadRequestException, InternalServerErrorException, UnauthorizedException } from '@exceptions';
-import { delay } from 'baileys';
+import { delay } from 'whaileys';
 import { isArray, isURL } from 'class-validator';
 import EventEmitter2 from 'eventemitter2';
 import { v4 } from 'uuid';

@@ -128,7 +128,7 @@ import makeWASocket, {
   WAMessageKey,
   WAPresence,
   WASocket,
-} from 'baileys';
+} from 'whaileys';
 import { Label } from 'baileys/lib/Types/Label';
 import { LabelAssociation } from 'baileys/lib/Types/LabelAssociation';
 import { spawn } from 'child_process';

@@ -292,7 +292,7 @@ export class ValidatedDto {
 ### Prisma Type Integration
 ```typescript
 import { JsonValue } from '@prisma/client/runtime/library';
-import { WAPresence } from 'baileys';
+import { WAPresence } from 'whaileys';
 import { TriggerOperator, TriggerType } from '@prisma/client';
 
 export class TypeSafeDto {

@@ -4,7 +4,7 @@ import { Integration } from '@api/types/wa.types';
 import { ConfigService, HttpServer } from '@config/env.config';
 import { Evoai, EvoaiSetting, IntegrationSession } from '@prisma/client';
 import axios from 'axios';
-import { downloadMediaMessage } from 'baileys';
+import { downloadMediaMessage } from 'whaileys';
 import { isURL } from 'class-validator';
 import { v4 as uuidv4 } from 'uuid';
 

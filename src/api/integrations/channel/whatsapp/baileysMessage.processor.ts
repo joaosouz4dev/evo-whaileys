@@ -1,5 +1,5 @@
 import { Logger } from '@config/logger.config';
-import { BaileysEventMap, MessageUpsertType, WAMessage } from 'baileys';
+import { BaileysEventMap, MessageUpsertType, WAMessage } from 'whaileys';
 import { catchError, concatMap, delay, EMPTY, from, retryWhen, Subject, Subscription, take, tap } from 'rxjs';
 
 type MessageUpsertPayload = BaileysEventMap['messages.upsert'];

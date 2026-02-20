@@ -1,11 +1,11 @@
 import axios, { AxiosRequestConfig } from 'axios';
-import { fetchLatestBaileysVersion, WAVersion } from 'baileys';
+import { fetchLatestBaileysVersion, WAVersion } from 'whaileys';
 
 import { Baileys, configService } from '../config/env.config';
 
 export const fetchLatestWaWebVersion = async (options: AxiosRequestConfig<{}>) => {
   // Check if manual version is set via configuration
-  const baileysConfig = configService.get<Baileys>('BAILEYS');
+  const baileysConfig = configService.get<Baileys>('whaileys');
   const manualVersion = baileysConfig?.VERSION;
 
   if (manualVersion) {
