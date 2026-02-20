@@ -316,6 +316,7 @@ export class BaileysStartupService extends ChannelStartupService {
   });
   private endSession = false;
   private isDeleting = false; // Flag to prevent reconnection during deletion
+  private isNewLogin = false; // Flag to track new login process for proper sync
   private logBaileys = this.configService.get<Log>('LOG').BAILEYS;
   private eventProcessingQueue: Promise<void> = Promise.resolve();
 
@@ -416,7 +417,13 @@ export class BaileysStartupService extends ChannelStartupService {
   }
 
   private async connectionUpdate(update: Partial<ConnectionState>) {
-    const { qr, connection, lastDisconnect } = update;
+    const { qr, connection, lastDisconnect, isNewLogin } = update;
+
+    // Track new login process to handle 515 reconnect properly
+    if (isNewLogin) {
+      this.isNewLogin = true;
+      this.logger.info('New login detected, will wait for app state sync before reconnecting');
+    }
 
     if (qr) {
       if (this.instance.qrcode.count === this.configService.get<QrCode>('QRCODE').LIMIT) {
@@ -523,10 +530,14 @@ export class BaileysStartupService extends ChannelStartupService {
 
       // reconnect if not logged out
       if (shouldReconnect) {
-        this.logger.info('Reconnecting in 3 seconds...');
+        // Use longer delay for new login with 515 to allow app state sync
+        const isRestartRequired = statusCode === DisconnectReason.restartRequired;
+        const reconnectDelay = this.isNewLogin && isRestartRequired ? 10000 : 3000;
+
+        this.logger.info(`Reconnecting in ${reconnectDelay / 1000} seconds...${this.isNewLogin ? ' (new login sync)' : ''}`);
         setTimeout(async () => {
           await this.connectToWhatsapp(this.phoneNumber);
-        }, 3000);
+        }, reconnectDelay);
       } else {
         this.sendDataWebhook(Events.STATUS_INSTANCE, {
           instance: this.instance.name,
@@ -564,6 +575,10 @@ export class BaileysStartupService extends ChannelStartupService {
 
     if (connection === 'open') {
       this.logger.log('opened connection');
+      // Reset new login flag only if app state is synced
+      if (this.instance.authState?.state?.creds?.myAppStateKeyId) {
+        this.isNewLogin = false;
+      }
       this.disconnectionTracker.del(`403:${this.instanceId}`);
       this.instance.wuid = this.client.user.id.replace(/:\d+/, '');
       try {
@@ -2038,6 +2053,11 @@ export class BaileysStartupService extends ChannelStartupService {
 
             if (events['creds.update']) {
               await this.instance.authState.saveCreds();
+              // Reset new login flag once app state key is synced
+              if (this.isNewLogin && this.instance.authState?.state?.creds?.myAppStateKeyId) {
+                this.logger.info('App state key synced, new login process complete');
+                this.isNewLogin = false;
+              }
             }
 
             if (events['messaging-history.set']) {
@@ -2146,6 +2166,12 @@ export class BaileysStartupService extends ChannelStartupService {
   }
 
   private historySyncNotification(msg: proto.Message.IHistorySyncNotification) {
+    // Skip history sync if app state keys are not yet synced to prevent forced logout
+    if (!this.instance.authState?.state?.creds?.myAppStateKeyId) {
+      this.logger.warn('Skipping history sync - app state keys not yet synced');
+      return false;
+    }
+
     const instance: InstanceDto = { instanceName: this.instance.name };
 
     if (
@@ -4174,6 +4200,9 @@ export class BaileysStartupService extends ChannelStartupService {
 
   public async updateProfileName(name: string) {
     try {
+      if (!this.instance.authState?.state?.creds?.myAppStateKeyId) {
+        throw new Error('Session not fully synced. Please wait for sync to complete or reconnect the instance.');
+      }
       await this.client.updateProfileName(name);
 
       return { update: 'success' };
@@ -4184,6 +4213,9 @@ export class BaileysStartupService extends ChannelStartupService {
 
   public async updateProfileStatus(status: string) {
     try {
+      if (!this.instance.authState?.state?.creds?.myAppStateKeyId) {
+        throw new Error('Session not fully synced. Please wait for sync to complete or reconnect the instance.');
+      }
       await this.client.updateProfileStatus(status);
 
       return { update: 'success' };
