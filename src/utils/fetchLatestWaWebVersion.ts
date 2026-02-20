@@ -5,7 +5,7 @@ import { Baileys, configService } from '../config/env.config';
 
 export const fetchLatestWaWebVersion = async (options: AxiosRequestConfig<{}>) => {
   // Check if manual version is set via configuration
-  const baileysConfig = configService.get<Baileys>('whaileys');
+  const baileysConfig = configService.get<Baileys>('BAILEYS');
   const manualVersion = baileysConfig?.VERSION;
 
   if (manualVersion) {

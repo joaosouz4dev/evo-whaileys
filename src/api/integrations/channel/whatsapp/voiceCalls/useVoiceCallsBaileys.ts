@@ -71,7 +71,7 @@ export const useVoiceCallsBaileys = async (
 
   socket.on('assertSessions', async (jids, force, callback) => {
     try {
-      const response = await baileys_sock.assertSessions(jids);
+      const response = await baileys_sock.assertSessions(jids, force);
 
       callback(response);
 
@@ -81,16 +81,10 @@ export const useVoiceCallsBaileys = async (
     }
   });
 
-  socket.on('createParticipantNodes', async (jids, message, extraAttrs, callback) => {
-    try {
-      const response = await baileys_sock.createParticipantNodes(jids, message, extraAttrs);
-
-      callback(response, true);
-
-      if (logger) console.log('[*] Success on call createParticipantNodes function', response);
-    } catch (error) {
-      if (logger) console.error('[*] Error on call createParticipantNodes function', error);
-    }
+  socket.on('createParticipantNodes', async (_jids, _message, _extraAttrs, callback) => {
+    // createParticipantNodes is not available in whaileys
+    callback(null, false);
+    if (logger) console.error('[*] createParticipantNodes is not available in whaileys');
   });
 
   socket.on('getUSyncDevices', async (jids, useCache, ignoreZeroDevices, callback) => {
@@ -130,20 +124,10 @@ export const useVoiceCallsBaileys = async (
     }
   });
 
-  socket.on('signalRepository:decryptMessage', async (jid, type, ciphertext, callback) => {
-    try {
-      const response = await baileys_sock.signalRepository.decryptMessage({
-        jid: jid,
-        type: type,
-        ciphertext: ciphertext,
-      });
-
-      callback(response);
-
-      if (logger) console.log('[*] Success on call signalRepository:decryptMessage function', response);
-    } catch (error) {
-      if (logger) console.error('[*] Error on call signalRepository:decryptMessage function', error);
-    }
+  socket.on('signalRepository:decryptMessage', async (_jid, _type, _ciphertext, callback) => {
+    // signalRepository.decryptMessage is not available in whaileys
+    callback(null);
+    if (logger) console.error('[*] signalRepository.decryptMessage is not available in whaileys');
   });
 
   // we only use this connection data to inform the webphone that the device is connected and creeds account to generate e2e whatsapp key for make call packets

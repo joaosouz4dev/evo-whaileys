@@ -107,8 +107,19 @@ export class EvoaiService extends BaseChatbotService<Evoai, EvoaiSetting> {
             }
           } else {
             // Download the image
-            const mediaBuffer = await downloadMediaMessage(msg, 'buffer', {});
-            const fileContent = Buffer.from(mediaBuffer).toString('base64');
+            const downloadedMedia = await downloadMediaMessage(msg, 'buffer', {});
+            // Handle both Buffer and Transform stream responses
+            let mediaBuffer: Buffer;
+            if (Buffer.isBuffer(downloadedMedia)) {
+              mediaBuffer = downloadedMedia;
+            } else {
+              const chunks: Buffer[] = [];
+              for await (const chunk of downloadedMedia) {
+                chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+              }
+              mediaBuffer = Buffer.concat(chunks);
+            }
+            const fileContent = mediaBuffer.toString('base64');
             const fileName = media[2] || `${msg.key?.id || 'image'}.jpg`;
 
             parts.push({

@@ -14,7 +14,6 @@ export class BaileysMessageProcessor {
   protected messageSubject = new Subject<{
     messages: WAMessage[];
     type: MessageUpsertType;
-    requestId?: string;
     settings: any;
   }>();
 
@@ -30,7 +29,6 @@ export class BaileysMessageProcessor {
       this.messageSubject = new Subject<{
         messages: WAMessage[];
         type: MessageUpsertType;
-        requestId?: string;
         settings: any;
       }>();
     }
@@ -40,8 +38,8 @@ export class BaileysMessageProcessor {
         tap(({ messages }) => {
           this.processorLogs.log(`Processing batch of ${messages.length} messages`);
         }),
-        concatMap(({ messages, type, requestId, settings }) =>
-          from(onMessageReceive({ messages, type, requestId }, settings)).pipe(
+        concatMap(({ messages, type, settings }) =>
+          from(onMessageReceive({ messages, type }, settings)).pipe(
             retryWhen((errors) =>
               errors.pipe(
                 tap((error) => this.processorLogs.warn(`Retrying message batch due to error: ${error.message}`)),
@@ -64,8 +62,8 @@ export class BaileysMessageProcessor {
   }
 
   processMessage(payload: MessageUpsertPayload, settings: any) {
-    const { messages, type, requestId } = payload;
-    this.messageSubject.next({ messages, type, requestId, settings });
+    const { messages, type } = payload;
+    this.messageSubject.next({ messages, type, settings });
   }
 
   onDestroy() {

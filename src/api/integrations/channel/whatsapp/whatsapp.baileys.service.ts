@@ -93,27 +93,25 @@ import makeWASocket, {
   AnyMessageContent,
   BufferedEventData,
   BufferJSON,
-  CacheStore,
   CatalogCollection,
   Chat,
   ConnectionState,
   Contact,
-  decryptPollVote,
   delay,
   DisconnectReason,
   downloadContentFromMessage,
   downloadMediaMessage,
   generateWAMessageFromContent,
   getAggregateVotesInPollMessage,
-  GetCatalogOptions,
   getContentType,
   getDevice,
   GroupMetadata,
   isJidBroadcast,
   isJidGroup,
   isJidNewsletter,
-  isPnUser,
   jidNormalizedUser,
+  Label,
+  LabelAssociation,
   makeCacheableSignalKeyStore,
   MessageUpsertType,
   MessageUserReceiptUpdate,
@@ -129,8 +127,73 @@ import makeWASocket, {
   WAPresence,
   WASocket,
 } from 'whaileys';
-import { Label } from 'baileys/lib/Types/Label';
-import { LabelAssociation } from 'baileys/lib/Types/LabelAssociation';
+import { hkdf } from 'whaileys';
+
+// Types not exported by whaileys
+type CacheStore = NodeCache;
+
+interface GetCatalogOptions {
+  jid?: string;
+  limit?: number;
+  cursor?: string;
+}
+
+// Helper function to check if jid is a phone number user (PN)
+const isPnUser = (jid: string): boolean => {
+  return jid?.endsWith('@s.whatsapp.net') || false;
+};
+
+// Helper function to decrypt poll votes
+const decryptPollVote = (
+  pollVote: proto.Message.IPollUpdateMessage,
+  options: {
+    pollCreatorJid: string;
+    pollMsgId: string;
+    pollEncKey: Uint8Array;
+    voterJid: string;
+  },
+): { selectedOptions: Uint8Array[] } | undefined => {
+  try {
+    const { pollEncKey, pollCreatorJid, pollMsgId, voterJid } = options;
+    const enc = pollVote.vote?.encPayload;
+    const iv = pollVote.vote?.encIv;
+
+    if (!enc || !iv || !pollEncKey) {
+      return undefined;
+    }
+
+    // Generate decryption key using HKDF
+    const info = Buffer.concat([
+      Buffer.from('Poll Vote'),
+      Buffer.from([1]),
+      Buffer.from(pollMsgId),
+      Buffer.from(voterJid.replace('@s.whatsapp.net', '').replace('@lid', '')),
+    ]);
+
+    const decKey = hkdf(pollEncKey, 32, { info });
+
+    // Decrypt using AES-GCM
+    const crypto = require('crypto');
+    const decipher = crypto.createDecipheriv('aes-256-gcm', decKey, iv);
+
+    // Extract auth tag (last 16 bytes)
+    const encData = Buffer.from(enc);
+    const authTag = encData.slice(-16);
+    const ciphertext = encData.slice(0, -16);
+
+    decipher.setAuthTag(authTag);
+    const decrypted = Buffer.concat([decipher.update(ciphertext), decipher.final()]);
+
+    // Parse the decrypted payload
+    const decoded = proto.Message.PollVoteMessage.decode(decrypted);
+
+    return {
+      selectedOptions: decoded.selectedOptions as Uint8Array[],
+    };
+  } catch {
+    return undefined;
+  }
+};
 import { spawn } from 'child_process';
 import { isArray, isBase64, isURL } from 'class-validator';
 import { createHash } from 'crypto';
@@ -1117,7 +1180,7 @@ export class BaileysStartupService extends ChannelStartupService {
     },
 
     'messages.upsert': async (
-      { messages, type, requestId }: { messages: WAMessage[]; type: MessageUpsertType; requestId?: string },
+      { messages, type }: { messages: WAMessage[]; type: MessageUpsertType },
       settings: any,
     ) => {
       try {
@@ -1142,12 +1205,10 @@ export class BaileysStartupService extends ChannelStartupService {
           if (received.message?.conversation || received.message?.extendedTextMessage?.text) {
             const text = received.message?.conversation || received.message?.extendedTextMessage?.text;
 
-            if (text == 'requestPlaceholder' && !requestId) {
-              const messageId = await this.client.requestPlaceholderResend(received.key);
+            if (text == 'requestPlaceholder') {
+              const messageId = await this.client.requestPlaceholderResend([{ messageKey: received.key }]);
 
               console.log('requested placeholder resync, id=', messageId);
-            } else if (requestId) {
-              console.log('Message received from phone, id=', requestId, received);
             }
 
             if (text == 'onDemandHistSync') {
@@ -1855,12 +1916,8 @@ export class BaileysStartupService extends ChannelStartupService {
         const resolvedParticipants = participantsUpdate.participants.map((participantId) => {
           const participantData = groupParticipants.participants.find((p) => p.id === participantId);
 
-          let phoneNumber: string;
-          if (participantData?.phoneNumber) {
-            phoneNumber = participantData.phoneNumber;
-          } else {
-            phoneNumber = normalizePhoneNumber(participantId);
-          }
+          // Extract phone number from JID
+          const phoneNumber = normalizePhoneNumber(participantId);
 
           return {
             jid: participantId,
@@ -1909,17 +1966,20 @@ export class BaileysStartupService extends ChannelStartupService {
       const labelName = label.name.replace(/[^\x20-\x7E]/g, '');
       if (!savedLabel || savedLabel.color !== `${label.color}` || savedLabel.name !== labelName) {
         if (this.configService.get<Database>('DATABASE').SAVE_DATA.LABELS) {
-          const labelData = {
-            color: `${label.color}`,
-            name: labelName,
-            labelId: label.id,
-            predefinedId: label.predefinedId,
-            instanceId: this.instanceId,
-          };
           await this.prismaRepository.label.upsert({
-            where: { labelId_instanceId: { instanceId: labelData.instanceId, labelId: labelData.labelId } },
-            update: labelData,
-            create: labelData,
+            where: { labelId_instanceId: { instanceId: this.instanceId, labelId: label.id } },
+            update: {
+              color: `${label.color}`,
+              name: labelName,
+              predefinedId: label.predefinedId != null ? `${label.predefinedId}` : null,
+            },
+            create: {
+              color: `${label.color}`,
+              name: labelName,
+              labelId: label.id,
+              predefinedId: label.predefinedId != null ? `${label.predefinedId}` : null,
+              Instance: { connect: { id: this.instanceId } },
+            },
           });
         }
       }
@@ -1969,12 +2029,11 @@ export class BaileysStartupService extends ChannelStartupService {
               }
 
               if (settings?.msgCall?.trim().length > 0 && call.status == 'offer') {
-                if (call.from.endsWith('@lid')) {
-                  call.from = await this.client.signalRepository.lidMapping.getPNForLID(call.from as string);
+                // Skip if caller is using LID (we can't resolve it without signalRepository)
+                if (!call.from.endsWith('@lid')) {
+                  const msg = await this.client.sendMessage(call.from, { text: settings.msgCall });
+                  this.client.ev.emit('messages.upsert', { messages: [msg], type: 'notify' });
                 }
-                const msg = await this.client.sendMessage(call.from, { text: settings.msgCall });
-
-                this.client.ev.emit('messages.upsert', { messages: [msg], type: 'notify' });
               }
 
               this.sendDataWebhook(Events.CALL, call);
@@ -2283,6 +2342,28 @@ export class BaileysStartupService extends ChannelStartupService {
           mentions,
           linkPreview: linkPreview,
           contextInfo: message['contextInfo'],
+        } as unknown as AnyMessageContent,
+        option as unknown as MiscMessageGenerationOptions,
+      );
+    }
+
+    if (message['buttons']) {
+      return await this.client.sendMessage(
+        sender,
+        {
+          ...message,
+          mentions,
+        } as unknown as AnyMessageContent,
+        option as unknown as MiscMessageGenerationOptions,
+      );
+    }
+
+    if (message['interactiveMessage']) {
+      return await this.client.sendMessage(
+        sender,
+        {
+          ...message,
+          mentions,
         } as unknown as AnyMessageContent,
         option as unknown as MiscMessageGenerationOptions,
       );
@@ -3343,7 +3424,12 @@ export class BaileysStartupService extends ChannelStartupService {
     const json = {
       call: () => toString({ display_text: button.displayText, phone_number: button.phoneNumber }),
       reply: () => toString({ display_text: button.displayText, id: button.id }),
-      copy: () => toString({ display_text: button.displayText, copy_code: button.copyCode }),
+      copy: () =>
+        toString({
+          display_text: button.displayText,
+          ...(button.id && { id: button.id }),
+          copy_code: button.copyCode,
+        }),
       url: () => toString({ display_text: button.displayText, url: button.url, merchant_url: button.url }),
       pix: () =>
         toString({
@@ -3397,95 +3483,42 @@ export class BaileysStartupService extends ChannelStartupService {
       throw new BadRequestException('At least one button is required');
     }
 
-    const hasReplyButtons = data.buttons.some((btn) => btn.type === 'reply');
-
     const hasPixButton = data.buttons.some((btn) => btn.type === 'pix');
-
-    const hasOtherButtons = data.buttons.some((btn) => btn.type !== 'reply' && btn.type !== 'pix');
-
-    if (hasReplyButtons) {
-      if (data.buttons.length > 3) {
-        throw new BadRequestException('Maximum of 3 reply buttons allowed');
-      }
-      if (hasOtherButtons) {
-        throw new BadRequestException('Reply buttons cannot be mixed with other button types');
-      }
+    if (hasPixButton && data.buttons.length > 1) {
+      throw new BadRequestException('Only one PIX button is allowed');
+    }
+    if (hasPixButton && data.buttons.some((btn) => btn.type !== 'pix')) {
+      throw new BadRequestException('PIX button cannot be mixed with other button types');
     }
 
-    if (hasPixButton) {
-      if (data.buttons.length > 1) {
-        throw new BadRequestException('Only one PIX button is allowed');
-      }
-      if (hasOtherButtons) {
-        throw new BadRequestException('PIX button cannot be mixed with other button types');
-      }
+    const buttons = data.buttons.map((btn) => ({
+      name: this.mapType.get(btn.type),
+      buttonParamsJson: this.toJSONString(btn),
+    }));
 
-      const message: proto.IMessage = {
-        viewOnceMessage: {
-          message: {
-            interactiveMessage: {
-              nativeFlowMessage: {
-                buttons: [{ name: this.mapType.get('pix'), buttonParamsJson: this.toJSONString(data.buttons[0]) }],
-                messageParamsJson: JSON.stringify({ from: 'api', templateId: v4() }),
-              },
-            },
-          },
-        },
-      };
+    const bodyText = '*' + data.title + '*' + (data?.description ? '\n\n' + data.description : '');
 
-      return await this.sendMessageWithTyping(data.number, message, {
-        delay: data?.delay,
-        presence: 'composing',
-        quoted: data?.quoted,
-        mentionsEveryOne: data?.mentionsEveryOne,
-        mentioned: data?.mentioned,
-      });
-    }
+    const generate = data?.thumbnailUrl
+      ? await this.prepareMediaMessage({ mediatype: 'image', media: data.thumbnailUrl })
+      : null;
 
-    const generate = await (async () => {
-      if (data?.thumbnailUrl) {
-        return await this.prepareMediaMessage({ mediatype: 'image', media: data.thumbnailUrl });
-      }
-    })();
-
-    const buttons = data.buttons.map((value) => {
-      return { name: this.mapType.get(value.type), buttonParamsJson: this.toJSONString(value) };
-    });
-
-    const message: proto.IMessage = {
-      viewOnceMessage: {
-        message: {
-          interactiveMessage: {
-            body: {
-              text: (() => {
-                let t = '*' + data.title + '*';
-                if (data?.description) {
-                  t += '\n\n';
-                  t += data.description;
-                  t += '\n';
-                }
-                return t;
-              })(),
-            },
-            footer: { text: data?.footer },
-            header: (() => {
-              if (generate?.message?.imageMessage) {
-                return {
-                  hasMediaAttachment: !!generate.message.imageMessage,
-                  imageMessage: generate.message.imageMessage,
-                };
-              }
-            })(),
-            nativeFlowMessage: {
-              buttons: buttons,
-              messageParamsJson: JSON.stringify({ from: 'api', templateId: v4() }),
-            },
-          },
-        },
+    const interactiveMessage: Record<string, any> = {
+      body: { text: bodyText },
+      footer: { text: data?.footer ?? '' },
+      nativeFlowMessage: {
+        buttons,
+        messageParamsJson: JSON.stringify({ from: 'api', templateId: v4() }),
       },
     };
 
-    return await this.sendMessageWithTyping(data.number, message, {
+    if (generate?.message?.imageMessage) {
+      interactiveMessage.header = {
+        hasMediaAttachment: true,
+        imageMessage: generate.message.imageMessage,
+      };
+    }
+
+    return await this.sendMessageWithTyping(data.number, { interactiveMessage }, {
       delay: data?.delay,
       presence: 'composing',
       quoted: data?.quoted,
@@ -3991,12 +4024,23 @@ export class BaileysStartupService extends ChannelStartupService {
       let buffer: Buffer;
 
       try {
-        buffer = await downloadMediaMessage(
+        const downloadedMedia = await downloadMediaMessage(
           { key: msg?.key, message: msg?.message },
           'buffer',
           {},
           { logger: P({ level: 'error' }) as any, reuploadRequest: this.client.updateMediaMessage },
         );
+        // Handle both Buffer and Transform stream responses
+        if (Buffer.isBuffer(downloadedMedia)) {
+          buffer = downloadedMedia;
+        } else {
+          // It's a Transform stream, collect chunks
+          const chunks: Buffer[] = [];
+          for await (const chunk of downloadedMedia) {
+            chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+          }
+          buffer = Buffer.concat(chunks);
+        }
       } catch {
         this.logger.error('Download Media failed, trying to retry in 5 seconds...');
         await new Promise((resolve) => setTimeout(resolve, 5000));
@@ -4194,7 +4238,13 @@ export class BaileysStartupService extends ChannelStartupService {
 
   public async removeProfilePicture() {
     try {
-      await this.client.removeProfilePicture(this.instance.wuid);
+      // whaileys doesn't have removeProfilePicture, use updateProfilePicture with empty/minimal image
+      // Create a 1x1 transparent PNG as placeholder
+      const emptyPng = Buffer.from(
+        'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==',
+        'base64',
+      );
+      await this.client.updateProfilePicture(this.instance.wuid, emptyPng);
 
       this.reloadConnection();
 
@@ -4937,27 +4987,15 @@ export class BaileysStartupService extends ChannelStartupService {
     return response;
   }
 
-  public async baileysAssertSessions(jids: string[]) {
-    const response = await this.client.assertSessions(jids);
+  public async baileysAssertSessions(jids: string[], force = false) {
+    const response = await this.client.assertSessions(jids, force);
 
     return response;
   }
 
-  public async baileysCreateParticipantNodes(jids: string[], message: proto.IMessage, extraAttrs: any) {
-    const response = await this.client.createParticipantNodes(jids, message, extraAttrs);
-
-    const convertedResponse = {
-      ...response,
-      nodes: response.nodes.map((node: any) => ({
-        ...node,
-        content: node.content?.map((c: any) => ({
-          ...c,
-          content: c.content instanceof Uint8Array ? Buffer.from(c.content).toString('base64') : c.content,
-        })),
-      })),
-    };
-
-    return convertedResponse;
+  public async baileysCreateParticipantNodes(_jids: string[], _message: proto.IMessage, _extraAttrs: any): Promise<any> {
+    // createParticipantNodes is not available in whaileys
+    throw new Error('createParticipantNodes is not available in this version');
   }
 
   public async baileysSendNode(stanza: any) {
@@ -4979,18 +5017,9 @@ export class BaileysStartupService extends ChannelStartupService {
     return response;
   }
 
-  public async baileysSignalRepositoryDecryptMessage(jid: string, type: 'pkmsg' | 'msg', ciphertext: string) {
-    try {
-      const ciphertextBuffer = Buffer.from(ciphertext, 'base64');
-
-      const response = await this.client.signalRepository.decryptMessage({ jid, type, ciphertext: ciphertextBuffer });
-
-      return response instanceof Uint8Array ? Buffer.from(response).toString('base64') : response;
-    } catch (error) {
-      this.logger.error('Error decrypting message:');
-      this.logger.error(error);
-      throw error;
-    }
+  public async baileysSignalRepositoryDecryptMessage(_jid: string, _type: 'pkmsg' | 'msg', _ciphertext: string) {
+    // signalRepository.decryptMessage is not available in whaileys
+    throw new Error('signalRepository.decryptMessage is not available in this version');
   }
 
   public async baileysGetAuthState() {
@@ -5053,18 +5082,18 @@ export class BaileysStartupService extends ChannelStartupService {
   public async getCatalog({
     jid,
     limit,
-    cursor,
   }: GetCatalogOptions): Promise<{ products: Product[]; nextPageCursor: string | undefined }> {
     try {
-      jid = jid ? createJid(jid) : this.instance.wuid;
+      const targetJid = jid ? createJid(jid) : this.instance.wuid;
 
-      const catalog = await this.client.getCatalog({ jid, limit: limit, cursor: cursor });
+      const catalog = await this.client.getCatalog(targetJid, limit);
 
       if (!catalog) {
         return { products: undefined, nextPageCursor: undefined };
       }
 
-      return catalog;
+      // whaileys doesn't return nextPageCursor, so we return undefined
+      return { ...catalog, nextPageCursor: undefined };
     } catch (error) {
       throw new InternalServerErrorException('Error getCatalog', error.toString());
     }
