@@ -3,18 +3,18 @@ import { CacheService } from '@api/services/cache.service';
 import { CacheConf, configService } from '@config/env.config';
 import { Logger } from '@config/logger.config';
 import { INSTANCE_DIR } from '@config/path.config';
-import { AuthenticationState, BufferJSON, initAuthCreds, WAProto as proto } from 'whaileys';
+import {
+  AuthenticationState,
+  BufferJSON,
+  initAuthCreds,
+  SignalDataTypeMap,
+  WAProto as proto
+} from 'whaileys';
 import fs from 'fs/promises';
 import path from 'path';
 
-const fixFileName = (file: string): string | undefined => {
-  if (!file) {
-    return undefined;
-  }
-  const replacedSlash = file.replace(/\//g, '__');
-  const replacedColon = replacedSlash.replace(/:/g, '-');
-  return replacedColon;
-};
+const fixFileName = (file?: string) =>
+  file?.replace(/\//g, '__')?.replace(/:/g, '-');
 
 export async function keyExists(sessionId: string): Promise<any> {
   try {
@@ -85,7 +85,8 @@ export default async function useMultiFileAuthStatePrisma(
   removeCreds: () => Promise<void>;
 }> {
   const localFolder = path.join(INSTANCE_DIR, sessionId);
-  const localFile = (key: string) => path.join(localFolder, fixFileName(key) + '.json');
+  const localFile = (key: string) =>
+    path.join(localFolder, (fixFileName(key) ?? key) + '.json');
   await fs.mkdir(localFolder, { recursive: true });
 
   async function writeData(data: any, key: string): Promise<any> {
@@ -177,12 +178,12 @@ export default async function useMultiFileAuthStatePrisma(
       creds,
       keys: {
         get: async (type, ids) => {
-          const data = {};
+          const data: { [id: string]: SignalDataTypeMap[typeof type] } = {};
           await Promise.all(
             ids.map(async (id) => {
               let value = await readData(`${type}-${id}`);
               if (type === 'app-state-sync-key' && value) {
-                value = proto.Message.AppStateSyncKeyData.create(value);
+                value = proto.Message.AppStateSyncKeyData.fromObject(value);
               }
 
               data[id] = value;
@@ -191,7 +192,7 @@ export default async function useMultiFileAuthStatePrisma(
           return data;
         },
         set: async (data) => {
-          const tasks = [];
+          const tasks: Promise<void>[] = [];
           for (const category in data) {
             for (const id in data[category]) {
               const value = data[category][id];

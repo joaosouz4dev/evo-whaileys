@@ -91,6 +91,8 @@ import { useMultiFileAuthStateRedisDb } from '@utils/use-multi-file-auth-state-r
 import axios from 'axios';
 import makeWASocket, {
   AnyMessageContent,
+  bytesToCrockford,
+  Browsers,
   BufferedEventData,
   BufferJSON,
   CatalogCollection,
@@ -196,7 +198,7 @@ const decryptPollVote = (
 };
 import { spawn } from 'child_process';
 import { isArray, isBase64, isURL } from 'class-validator';
-import { createHash } from 'crypto';
+import { createHash, randomBytes } from 'crypto';
 import EventEmitter2 from 'eventemitter2';
 import ffmpeg from 'fluent-ffmpeg';
 import FormData from 'form-data';
@@ -308,6 +310,12 @@ export class BaileysStartupService extends ChannelStartupService {
   private authStateProvider: AuthStateProvider;
   private readonly msgRetryCounterCache: CacheStore = new NodeCache();
   private readonly userDevicesCache: CacheStore = new NodeCache({ stdTTL: 300000, useClones: false });
+  /** Soft ban (403) tracker: só considera logout após N ocorrências em 3h (issue #39 whaileys) */
+  private readonly disconnectionTracker = new NodeCache({
+    stdTTL: 60 * 60 * 3,
+    checkperiod: 60 * 15,
+    useClones: false,
+  });
   private endSession = false;
   private isDeleting = false; // Flag to prevent reconnection during deletion
   private logBaileys = this.configService.get<Log>('LOG').BAILEYS;
@@ -463,7 +471,9 @@ export class BaileysStartupService extends ChannelStartupService {
       };
 
       if (this.phoneNumber) {
-        await delay(1000);
+        await delay(3000);
+        // const customCode = bytesToCrockford(randomBytes(5));
+        // this.logger.info('customCode: ' + customCode);
         this.instance.qrcode.pairingCode = await this.client.requestPairingCode(this.phoneNumber);
       } else {
         this.instance.qrcode.pairingCode = null;
@@ -573,6 +583,7 @@ export class BaileysStartupService extends ChannelStartupService {
     }
 
     if (connection === 'open') {
+      this.disconnectionTracker.del(`403:${this.instanceId}`);
       this.instance.wuid = this.client.user.id.replace(/:\d+/, '');
       try {
         const profilePic = await this.profilePicture(this.instance.wuid);
@@ -663,18 +674,18 @@ export class BaileysStartupService extends ChannelStartupService {
 
   private async defineAuthState() {
     const db = this.configService.get<Database>('DATABASE');
-    const cache = this.configService.get<CacheConf>('CACHE');
+    // const cache = this.configService.get<CacheConf>('CACHE');
 
-    const provider = this.configService.get<ProviderSession>('PROVIDER');
+    // const provider = this.configService.get<ProviderSession>('PROVIDER');
 
-    if (provider?.ENABLED) {
-      return await this.authStateProvider.authStateProvider(this.instance.id);
-    }
+    // if (provider?.ENABLED) {
+    //   return await this.authStateProvider.authStateProvider(this.instance.id);
+    // }
 
-    if (cache?.REDIS.ENABLED && cache?.REDIS.SAVE_INSTANCES) {
-      this.logger.info('Redis enabled');
-      return await useMultiFileAuthStateRedisDb(this.instance.id, this.cache);
-    }
+    // if (cache?.REDIS.ENABLED && cache?.REDIS.SAVE_INSTANCES) {
+    //   this.logger.info('Redis enabled');
+    //   return await useMultiFileAuthStateRedisDb(this.instance.id, this.cache);
+    // }
 
     if (db.SAVE_DATA.INSTANCE) {
       return await useMultiFileAuthStatePrisma(this.instance.id, this.cache);
@@ -689,7 +700,7 @@ export class BaileysStartupService extends ChannelStartupService {
       this.logger.info(`Phone number: ${number}`);
     }
 
-    // Fetch latest WhatsApp Web version automatically
+    // Fetch WhatsApp Web version: CONFIG_BAILEYS_VERSION > sw.js > whaileys fallback
     const baileysVersion = await fetchLatestWaWebVersion({});
     const version = baileysVersion.version;
 
@@ -747,7 +758,6 @@ export class BaileysStartupService extends ChannelStartupService {
       msgRetryCounterCache: this.msgRetryCounterCache,
       generateHighQualityLinkPreview: true,
       getMessage: async (key) => (await this.getMessage(key)) as Promise<proto.IMessage>,
-      // Removido browserOptions para usar Multi-Device nativo (não WebClient)
       markOnlineOnConnect: this.localSettings.alwaysOnline,
       retryRequestDelayMs: 350,
       maxMsgRetryCount: 4,
