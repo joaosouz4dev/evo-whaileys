@@ -89,10 +89,25 @@ import useMultiFileAuthStatePrisma from '@utils/use-multi-file-auth-state-prisma
 import { AuthStateProvider } from '@utils/use-multi-file-auth-state-provider-files';
 import { useMultiFileAuthStateRedisDb } from '@utils/use-multi-file-auth-state-redis-db';
 import axios from 'axios';
+import { spawn } from 'child_process';
+import { isArray, isBase64, isURL } from 'class-validator';
+import { createHash } from 'crypto';
+import EventEmitter2 from 'eventemitter2';
+import ffmpeg from 'fluent-ffmpeg';
+import FormData from 'form-data';
+import Long from 'long';
+import mimeTypes from 'mime-types';
+import NodeCache from 'node-cache';
+import cron from 'node-cron';
+import { join } from 'path';
+import P from 'pino';
+import qrcode, { QRCodeToDataURLOptions } from 'qrcode';
+import qrcodeTerminal from 'qrcode-terminal';
+import sharp from 'sharp';
+import { PassThrough, Readable } from 'stream';
+import { v4 } from 'uuid';
 import makeWASocket, {
   AnyMessageContent,
-  bytesToCrockford,
-  Browsers,
   BufferedEventData,
   BufferJSON,
   CatalogCollection,
@@ -108,6 +123,7 @@ import makeWASocket, {
   getContentType,
   getDevice,
   GroupMetadata,
+  hkdf,
   isJidBroadcast,
   isJidGroup,
   isJidNewsletter,
@@ -129,7 +145,9 @@ import makeWASocket, {
   WAPresence,
   WASocket,
 } from 'whaileys';
-import { hkdf } from 'whaileys';
+
+import { BaileysMessageProcessor } from './baileysMessage.processor';
+import { useVoiceCallsBaileys } from './voiceCalls/useVoiceCallsBaileys';
 
 // Types not exported by whaileys
 type CacheStore = NodeCache;
@@ -196,26 +214,6 @@ const decryptPollVote = (
     return undefined;
   }
 };
-import { spawn } from 'child_process';
-import { isArray, isBase64, isURL } from 'class-validator';
-import { createHash, randomBytes } from 'crypto';
-import EventEmitter2 from 'eventemitter2';
-import ffmpeg from 'fluent-ffmpeg';
-import FormData from 'form-data';
-import Long from 'long';
-import mimeTypes from 'mime-types';
-import NodeCache from 'node-cache';
-import cron from 'node-cron';
-import { join } from 'path';
-import P from 'pino';
-import qrcode, { QRCodeToDataURLOptions } from 'qrcode';
-import qrcodeTerminal from 'qrcode-terminal';
-import sharp from 'sharp';
-import { PassThrough, Readable } from 'stream';
-import { v4 } from 'uuid';
-
-import { BaileysMessageProcessor } from './baileysMessage.processor';
-import { useVoiceCallsBaileys } from './voiceCalls/useVoiceCallsBaileys';
 
 export interface ExtendedIMessageKey extends proto.IMessageKey {
   remoteJidAlt?: string;
@@ -417,18 +415,8 @@ export class BaileysStartupService extends ChannelStartupService {
     };
   }
 
-  private async connectionUpdate({ qr, connection, lastDisconnect }: Partial<ConnectionState>) {
-    // Enhanced logging for connection updates
-    const statusCode = (lastDisconnect?.error as Boom)?.output?.statusCode;
-    this.logger.info({
-      message: 'Connection update received',
-      connection,
-      hasQr: !!qr,
-      statusCode,
-      instanceName: this.instance.name,
-      isDeleting: this.isDeleting,
-      endSession: this.endSession,
-    });
+  private async connectionUpdate(update: Partial<ConnectionState>) {
+    const { qr, connection, lastDisconnect } = update;
 
     if (qr) {
       if (this.instance.qrcode.count === this.configService.get<QrCode>('QRCODE').LIMIT) {
@@ -524,31 +512,17 @@ export class BaileysStartupService extends ChannelStartupService {
     }
 
     if (connection === 'close') {
-      // Check if instance is being deleted or session is ending
       if (this.isDeleting || this.endSession) {
         this.logger.info('Instance is being deleted/ended, skipping reconnection attempt');
         return;
       }
 
       const statusCode = (lastDisconnect?.error as Boom)?.output?.statusCode;
-      const codesToNotReconnect = [
-        DisconnectReason.loggedOut,
-        DisconnectReason.forbidden,
-        DisconnectReason.connectionReplaced,
-        402,
-        406,
-      ];
+      const codesToNotReconnect = [DisconnectReason.loggedOut, DisconnectReason.forbidden, 402, 406];
       const shouldReconnect = !codesToNotReconnect.includes(statusCode);
 
-      this.logger.info({
-        message: 'Connection closed, evaluating reconnection',
-        statusCode,
-        shouldReconnect,
-        instanceName: this.instance.name,
-      });
-
+      // reconnect if not logged out
       if (shouldReconnect) {
-        // Add 3 second delay before reconnection to prevent rapid reconnection loops
         this.logger.info('Reconnecting in 3 seconds...');
         setTimeout(async () => {
           await this.connectToWhatsapp(this.phoneNumber);
@@ -589,6 +563,7 @@ export class BaileysStartupService extends ChannelStartupService {
     }
 
     if (connection === 'open') {
+      this.logger.log('opened connection');
       this.disconnectionTracker.del(`403:${this.instanceId}`);
       this.instance.wuid = this.client.user.id.replace(/:\d+/, '');
       try {
@@ -643,6 +618,8 @@ export class BaileysStartupService extends ChannelStartupService {
     if (connection === 'connecting') {
       this.sendDataWebhook(Events.CONNECTION_UPDATE, { instance: this.instance.name, ...this.stateConnection });
     }
+
+    this.logger.log(`connection update: ${JSON.stringify(update)}`);
   }
 
   private async getMessage(key: proto.IMessageKey, full = false) {
@@ -2060,7 +2037,7 @@ export class BaileysStartupService extends ChannelStartupService {
             }
 
             if (events['creds.update']) {
-              this.instance.authState.saveCreds();
+              await this.instance.authState.saveCreds();
             }
 
             if (events['messaging-history.set']) {
@@ -3534,13 +3511,17 @@ export class BaileysStartupService extends ChannelStartupService {
       };
     }
 
-    return await this.sendMessageWithTyping(data.number, { interactiveMessage }, {
-      delay: data?.delay,
-      presence: 'composing',
-      quoted: data?.quoted,
-      mentionsEveryOne: data?.mentionsEveryOne,
-      mentioned: data?.mentioned,
-    });
+    return await this.sendMessageWithTyping(
+      data.number,
+      { interactiveMessage },
+      {
+        delay: data?.delay,
+        presence: 'composing',
+        quoted: data?.quoted,
+        mentionsEveryOne: data?.mentionsEveryOne,
+        mentioned: data?.mentioned,
+      },
+    );
   }
 
   public async locationMessage(data: SendLocationDto) {
@@ -5009,7 +4990,11 @@ export class BaileysStartupService extends ChannelStartupService {
     return response;
   }
 
-  public async baileysCreateParticipantNodes(_jids: string[], _message: proto.IMessage, _extraAttrs: any): Promise<any> {
+  public async baileysCreateParticipantNodes(
+    _jids: string[],
+    _message: proto.IMessage,
+    _extraAttrs: any,
+  ): Promise<any> {
     // createParticipantNodes is not available in whaileys
     throw new Error('createParticipantNodes is not available in this version');
   }
