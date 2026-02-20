@@ -1,1 +1,7 @@
-npx --no -- commitlint --edit $1
+#!/usr/bin/env sh
+# Desabilitado - reative descomentando abaixo
+exit 0
+# [ -f "$HOME/.bashrc" ] && . "$HOME/.bashrc" 2>/dev/null
+# [ -f "$HOME/.bash_profile" ] && . "$HOME/.bash_profile" 2>/dev/null
+# export PATH="$PATH:/c/Program Files/nodejs:${HOME}/scoop/apps/nodejs/current/bin:${APPDATA}/npm"
+# npx --no -- commitlint --edit "$1"

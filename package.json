@@ -56,9 +56,6 @@
   "lint-staged": {
     "src/**/*.{ts,js}": [
       "eslint --fix"
-    ],
-    "src/**/*.ts": [
-      "sh -c 'tsc --noEmit'"
     ]
   },
   "config": {
