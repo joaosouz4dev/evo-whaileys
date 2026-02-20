@@ -15,6 +15,7 @@ export enum Events {
   MESSAGES_UPDATE = 'messages.update',
   MESSAGES_DELETE = 'messages.delete',
   SEND_MESSAGE = 'send.message',
+  SEND_MESSAGE_UPDATE = 'send.message.update',
   CONTACTS_SET = 'contacts.set',
   CONTACTS_UPSERT = 'contacts.upsert',
   CONTACTS_UPDATE = 'contacts.update',
@@ -51,6 +52,7 @@ export declare namespace wa {
     pairingCode?: string;
     authState?: { state: AuthenticationState; saveCreds: () => void };
     name?: string;
+    ownerJid?: string;
     wuid?: string;
     profileName?: string;
     profilePictureUrl?: string;

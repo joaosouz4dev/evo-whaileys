@@ -2,8 +2,10 @@ import { InstanceDto } from '@api/dto/instance.dto';
 import { PrismaRepository } from '@api/repository/repository.service';
 import {
   difyController,
+  evoaiController,
   evolutionBotController,
   flowiseController,
+  n8nController,
   openaiController,
   typebotController,
 } from '@api/server.module';
@@ -89,15 +91,19 @@ export class ChatbotController {
       pushName,
       isIntegration,
     };
-    await evolutionBotController.emit(emitData);
+    evolutionBotController.emit(emitData);
 
-    await typebotController.emit(emitData);
+    typebotController.emit(emitData);
 
-    await openaiController.emit(emitData);
+    openaiController.emit(emitData);
 
-    await difyController.emit(emitData);
+    difyController.emit(emitData);
 
-    await flowiseController.emit(emitData);
+    n8nController.emit(emitData);
+
+    evoaiController.emit(emitData);
+
+    flowiseController.emit(emitData);
   }
 
   public processDebounce(
@@ -173,7 +179,7 @@ export class ChatbotController {
     if (session) {
       if (session.status !== 'closed' && !session.botId) {
         this.logger.warn('Session is already opened in another integration');
-        return;
+        return null;
       } else if (!session.botId) {
         session = null;
       }
@@ -188,13 +194,13 @@ export class ChatbotController {
     instance: InstanceDto,
     session?: IntegrationSession,
   ) {
-    let findBot: null;
+    let findBot: any = null;
 
     if (!session) {
       findBot = await findBotByTrigger(botRepository, content, instance.instanceId);
 
       if (!findBot) {
-        return;
+        return null;
       }
     } else {
       findBot = await botRepository.findFirst({

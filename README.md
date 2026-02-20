@@ -2,10 +2,14 @@
 
 <div align="center">
 
+[![Docker Image](https://img.shields.io/badge/Docker-image-blue)](https://hub.docker.com/r/evoapicloud/evolution-api)
 [![Whatsapp Group](https://img.shields.io/badge/Group-WhatsApp-%2322BC18)](https://evolution-api.com/whatsapp)
 [![Discord Community](https://img.shields.io/badge/Discord-Community-blue)](https://evolution-api.com/discord)
 [![Postman Collection](https://img.shields.io/badge/Postman-Collection-orange)](https://evolution-api.com/postman) 
 [![Documentation](https://img.shields.io/badge/Documentation-Official-green)](https://doc.evolution-api.com)
+[![Feature Requests](https://img.shields.io/badge/Feature-Requests-purple)](https://evolutionapi.canny.io/feature-requests)
+[![Roadmap](https://img.shields.io/badge/Roadmap-Community-blue)](https://evolutionapi.canny.io/feature-requests)
+[![Changelog](https://img.shields.io/badge/Changelog-Updates-green)](https://evolutionapi.canny.io/changelog)
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue)](./LICENSE)
 [![Support](https://img.shields.io/badge/Donation-picpay-green)](https://app.picpay.com/user/davidsongomes1998)
 [![Sponsors](https://img.shields.io/badge/Github-sponsor-orange)](https://github.com/sponsors/EvolutionAPI)
@@ -51,6 +55,9 @@ Evolution API supports various integrations to enhance its functionality. Below 
 - [RabbitMQ](https://www.rabbitmq.com/):
   - Receive events from the Evolution API via RabbitMQ.
 
+- [Apache Kafka](https://kafka.apache.org/):
+  - Receive events from the Evolution API via Apache Kafka for real-time event streaming and processing.
+
 - [Amazon SQS](https://aws.amazon.com/pt/sqs/):
   - Receive events from the Evolution API via Amazon SQS.
 
@@ -65,6 +72,24 @@ Evolution API supports various integrations to enhance its functionality. Below 
 
 - Amazon S3 / Minio:
   - Store media files received in [Amazon S3](https://aws.amazon.com/pt/s3/) or [Minio](https://min.io/).
+
+## Community & Feedback
+
+We value community input and feedback to continuously improve Evolution API:
+
+### 🚀 Feature Requests & Roadmap
+- **[Feature Requests](https://evolutionapi.canny.io/feature-requests)**: Submit new feature ideas and vote on community proposals
+- **[Roadmap](https://evolutionapi.canny.io/feature-requests)**: View planned features and development progress
+- **[Changelog](https://evolutionapi.canny.io/changelog)**: Stay updated with the latest releases and improvements
+
+### 💬 Community Support
+- **[WhatsApp Group](https://evolution-api.com/whatsapp)**: Join our community for support and discussions
+- **[Discord Community](https://evolution-api.com/discord)**: Real-time chat with developers and users
+- **[GitHub Issues](https://github.com/EvolutionAPI/evolution-api/issues)**: Report bugs and technical issues
+
+### 🔒 Security
+- **[Security Policy](./SECURITY.md)**: Guidelines for reporting security vulnerabilities
+- **Security Contact**: contato@evolution-api.com
 
 ## Telemetry Notice
 
@@ -87,6 +112,7 @@ https://github.com/sponsors/EvolutionAPI
 We are proud to collaborate with the following content creators who have contributed valuable insights and tutorials about Evolution API:
 
 - [Promovaweb](https://www.youtube.com/@promovaweb)
+- [Sandeco](https://www.youtube.com/@canalsandeco)
 - [Comunidade ZDG](https://www.youtube.com/@ComunidadeZDG)
 - [Francis MNO](https://www.youtube.com/@FrancisMNO)
 - [Pablo Cabral](https://youtube.com/@pablocabral)
@@ -111,8 +137,8 @@ Evolution API is licensed under the Apache License 2.0, with the following addit
 
 2. **Usage Notification Requirement**: If Evolution API is used as part of any project, including closed-source systems (e.g., proprietary software), the user is required to display a clear notification within the system that Evolution API is being utilized. This notification should be visible to system administrators and accessible from the system's documentation or settings page. Failure to comply with this requirement may result in the necessity for a commercial license, as determined by the producer.
 
-Please contact contato@atendai.com to inquire about licensing matters.
+Please contact contato@evolution-api.com to inquire about licensing matters.
 
 Apart from the specific conditions mentioned above, all other rights and restrictions follow the Apache License 2.0. Detailed information about the Apache License 2.0 can be found at [http://www.apache.org/licenses/LICENSE-2.0](http://www.apache.org/licenses/LICENSE-2.0).
 
-© 2024 Evolution API
+© 2025 Evolution API

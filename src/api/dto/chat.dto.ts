@@ -13,6 +13,7 @@ export class OnWhatsAppDto {
     public readonly exists: boolean,
     public readonly number: string,
     public readonly name?: string,
+    public readonly lid?: string,
   ) {}
 }
 
@@ -125,4 +126,13 @@ export class UpdateMessageDto extends Metadata {
 export class BlockUserDto {
   number: string;
   status: 'block' | 'unblock';
+}
+
+export class DecryptPollVoteDto {
+  message: {
+    key: {
+      id: string;
+    };
+  };
+  remoteJid: string;
 }

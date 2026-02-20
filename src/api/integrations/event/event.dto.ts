@@ -26,6 +26,11 @@ export class EventDto {
     events?: string[];
   };
 
+  nats?: {
+    enabled?: boolean;
+    events?: string[];
+  };
+
   pusher?: {
     enabled?: boolean;
     appId?: string;
@@ -33,6 +38,11 @@ export class EventDto {
     secret?: string;
     cluster?: string;
     useTLS?: boolean;
+    events?: string[];
+  };
+
+  kafka?: {
+    enabled?: boolean;
     events?: string[];
   };
 }
@@ -63,6 +73,11 @@ export function EventInstanceMixin<TBase extends Constructor>(Base: TBase) {
       events?: string[];
     };
 
+    nats?: {
+      enabled?: boolean;
+      events?: string[];
+    };
+
     pusher?: {
       enabled?: boolean;
       appId?: string;
@@ -70,6 +85,11 @@ export function EventInstanceMixin<TBase extends Constructor>(Base: TBase) {
       secret?: string;
       cluster?: string;
       useTLS?: boolean;
+      events?: string[];
+    };
+
+    kafka?: {
+      enabled?: boolean;
       events?: string[];
     };
   };

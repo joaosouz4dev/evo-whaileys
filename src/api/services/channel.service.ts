@@ -9,7 +9,7 @@ import { TypebotService } from '@api/integrations/chatbot/typebot/services/typeb
 import { PrismaRepository, Query } from '@api/repository/repository.service';
 import { eventManager, waMonitor } from '@api/server.module';
 import { Events, wa } from '@api/types/wa.types';
-import { Auth, Chatwoot, ConfigService, HttpServer } from '@config/env.config';
+import { Auth, Chatwoot, ConfigService, HttpServer, Proxy } from '@config/env.config';
 import { Logger } from '@config/logger.config';
 import { NotFoundException } from '@exceptions';
 import { Contact, Message, Prisma } from '@prisma/client';
@@ -45,11 +45,11 @@ export class ChannelStartupService {
     this.chatwootCache,
   );
 
-  public typebotService = new TypebotService(waMonitor, this.configService, this.prismaRepository);
+  public openaiService = new OpenaiService(waMonitor, this.prismaRepository, this.configService);
 
-  public openaiService = new OpenaiService(waMonitor, this.configService, this.prismaRepository);
+  public typebotService = new TypebotService(waMonitor, this.configService, this.prismaRepository, this.openaiService);
 
-  public difyService = new DifyService(waMonitor, this.configService, this.prismaRepository);
+  public difyService = new DifyService(waMonitor, this.prismaRepository, this.configService, this.openaiService);
 
   public setInstance(instance: InstanceDto) {
     this.logger.setInstance(instance.instanceName);
@@ -60,6 +60,7 @@ export class ChannelStartupService {
     this.instance.number = instance.number;
     this.instance.token = instance.token;
     this.instance.businessId = instance.businessId;
+    this.instance.ownerJid = instance.ownerJid;
 
     if (this.configService.get<Chatwoot>('CHATWOOT').ENABLED && this.localChatwoot?.enabled) {
       this.chatwootService.eventWhatsapp(
@@ -364,13 +365,14 @@ export class ChannelStartupService {
   public async loadProxy() {
     this.localProxy.enabled = false;
 
-    if (process.env.PROXY_HOST) {
+    const proxyConfig = this.configService.get<Proxy>('PROXY');
+    if (proxyConfig.HOST) {
       this.localProxy.enabled = true;
-      this.localProxy.host = process.env.PROXY_HOST;
-      this.localProxy.port = process.env.PROXY_PORT || '80';
-      this.localProxy.protocol = process.env.PROXY_PROTOCOL || 'http';
-      this.localProxy.username = process.env.PROXY_USERNAME;
-      this.localProxy.password = process.env.PROXY_PASSWORD;
+      this.localProxy.host = proxyConfig.HOST;
+      this.localProxy.port = proxyConfig.PORT || '80';
+      this.localProxy.protocol = proxyConfig.PROTOCOL || 'http';
+      this.localProxy.username = proxyConfig.USERNAME;
+      this.localProxy.password = proxyConfig.PASSWORD;
     }
 
     const data = await this.prismaRepository.proxy.findUnique({
@@ -430,7 +432,13 @@ export class ChannelStartupService {
     return data;
   }
 
-  public async sendDataWebhook<T = any>(event: Events, data: T, local = true, integration?: string[]) {
+  public async sendDataWebhook<T extends object = any>(
+    event: Events,
+    data: T,
+    local = true,
+    integration?: string[],
+    extra?: Record<string, any>,
+  ) {
     const serverUrl = this.configService.get<HttpServer>('SERVER').URL;
     const tzoffset = new Date().getTimezoneOffset() * 60000; //offset in milliseconds
     const localISOTime = new Date(Date.now() - tzoffset).toISOString();
@@ -451,6 +459,7 @@ export class ChannelStartupService {
       apiKey: expose && instanceApikey ? instanceApikey : null,
       local,
       integration,
+      extra,
     });
   }
 
@@ -489,35 +498,57 @@ export class ChannelStartupService {
   }
 
   public async fetchContacts(query: Query<Contact>) {
-    const remoteJid = query?.where?.remoteJid
-      ? query?.where?.remoteJid.includes('@')
-        ? query.where?.remoteJid
-        : createJid(query.where?.remoteJid)
-      : null;
-
-    const where = {
+    const where: any = {
       instanceId: this.instanceId,
     };
 
-    if (remoteJid) {
+    if (query?.where?.remoteJid) {
+      const remoteJid = query.where.remoteJid.includes('@') ? query.where.remoteJid : createJid(query.where.remoteJid);
       where['remoteJid'] = remoteJid;
     }
 
-    return await this.prismaRepository.contact.findMany({
+    if (query?.where?.id) {
+      where['id'] = query.where.id;
+    }
+
+    if (query?.where?.pushName) {
+      where['pushName'] = query.where.pushName;
+    }
+
+    const contactFindManyArgs: Prisma.ContactFindManyArgs = {
       where,
+    };
+
+    if (query.offset) contactFindManyArgs.take = query.offset;
+    if (query.page) {
+      const validPage = Math.max(query.page as number, 1);
+      contactFindManyArgs.skip = query.offset * (validPage - 1);
+    }
+
+    const contacts = await this.prismaRepository.contact.findMany(contactFindManyArgs);
+
+    return contacts.map((contact) => {
+      const remoteJid = contact.remoteJid;
+      const isGroup = remoteJid.endsWith('@g.us');
+      const isSaved = !!contact.pushName || !!contact.profilePicUrl;
+      const type = isGroup ? 'group' : isSaved ? 'contact' : 'group_member';
+      return {
+        ...contact,
+        isGroup,
+        isSaved,
+        type,
+      };
     });
   }
 
   public cleanMessageData(message: any) {
     if (!message) return message;
-
     const cleanedMessage = { ...message };
 
-    const mediaUrl = cleanedMessage.message.mediaUrl;
-
-    delete cleanedMessage.message.base64;
-
     if (cleanedMessage.message) {
+      const { mediaUrl } = cleanedMessage.message;
+      delete cleanedMessage.message.base64;
+
       // Limpa imageMessage
       if (cleanedMessage.message.imageMessage) {
         cleanedMessage.message.imageMessage = {
@@ -559,9 +590,9 @@ export class ChannelStartupService {
           name: cleanedMessage.message.documentWithCaptionMessage.name,
         };
       }
-    }
 
-    if (mediaUrl) cleanedMessage.message.mediaUrl = mediaUrl;
+      if (mediaUrl) cleanedMessage.message.mediaUrl = mediaUrl;
+    }
 
     return cleanedMessage;
   }
@@ -656,6 +687,14 @@ export class ChannelStartupService {
   }
 
   public async fetchStatusMessage(query: any) {
+    if (!query?.offset) {
+      query.offset = 50;
+    }
+
+    if (!query?.page) {
+      query.page = 1;
+    }
+
     return await this.prismaRepository.messageUpdate.findMany({
       where: {
         instanceId: this.instanceId,
@@ -664,6 +703,16 @@ export class ChannelStartupService {
       },
       skip: query.offset * (query?.page === 1 ? 0 : (query?.page as number) - 1),
       take: query.offset,
+    });
+  }
+
+  public async findChatByRemoteJid(remoteJid: string) {
+    if (!remoteJid) return null;
+    return await this.prismaRepository.chat.findFirst({
+      where: {
+        instanceId: this.instanceId,
+        remoteJid: remoteJid,
+      },
     });
   }
 
@@ -685,54 +734,59 @@ export class ChannelStartupService {
     const timestampFilter =
       query?.where?.messageTimestamp?.gte && query?.where?.messageTimestamp?.lte
         ? Prisma.sql`
-          AND "Message"."messageTimestamp" >= ${Math.floor(new Date(query.where.messageTimestamp.gte).getTime() / 1000)}
-          AND "Message"."messageTimestamp" <= ${Math.floor(new Date(query.where.messageTimestamp.lte).getTime() / 1000)}`
+        AND "Message"."messageTimestamp" >= ${Math.floor(new Date(query.where.messageTimestamp.gte).getTime() / 1000)}
+        AND "Message"."messageTimestamp" <= ${Math.floor(new Date(query.where.messageTimestamp.lte).getTime() / 1000)}`
         : Prisma.sql``;
 
+    const limit = query?.take ? Prisma.sql`LIMIT ${query.take}` : Prisma.sql``;
+    const offset = query?.skip ? Prisma.sql`OFFSET ${query.skip}` : Prisma.sql``;
+
     const results = await this.prismaRepository.$queryRaw`
-        WITH rankedMessages AS (
-          SELECT DISTINCT ON ("Contact"."remoteJid")
-            "Contact"."id",
-            "Contact"."remoteJid",
-            "Contact"."pushName",
-            "Contact"."profilePicUrl",
-            COALESCE(
-              to_timestamp("Message"."messageTimestamp"::double precision), 
-              "Contact"."updatedAt"
-            ) as "updatedAt",
-            "Chat"."createdAt" as "windowStart",
-            "Chat"."createdAt" + INTERVAL '24 hours' as "windowExpires",
-            CASE 
-              WHEN "Chat"."createdAt" + INTERVAL '24 hours' > NOW() THEN true 
-              ELSE false 
-            END as "windowActive",
-            "Message"."id" AS lastMessageId,
-            "Message"."key" AS lastMessage_key,
-            "Message"."pushName" AS lastMessagePushName,
-            "Message"."participant" AS lastMessageParticipant,
-            "Message"."messageType" AS lastMessageMessageType,
-            "Message"."message" AS lastMessageMessage,
-            "Message"."contextInfo" AS lastMessageContextInfo,
-            "Message"."source" AS lastMessageSource,
-            "Message"."messageTimestamp" AS lastMessageMessageTimestamp,
-            "Message"."instanceId" AS lastMessageInstanceId,
-            "Message"."sessionId" AS lastMessageSessionId,
-            "Message"."status" AS lastMessageStatus
-          FROM "Contact"
-          INNER JOIN "Message" ON "Message"."key"->>'remoteJid' = "Contact"."remoteJid"
-          LEFT JOIN "Chat" ON "Chat"."remoteJid" = "Contact"."remoteJid" 
-            AND "Chat"."instanceId" = "Contact"."instanceId"
-          WHERE 
-            "Contact"."instanceId" = ${this.instanceId}
-            AND "Message"."instanceId" = ${this.instanceId}
-            ${remoteJid ? Prisma.sql`AND "Contact"."remoteJid" = ${remoteJid}` : Prisma.sql``}
-            ${timestampFilter}
-          ORDER BY 
-            "Contact"."remoteJid",
-            "Message"."messageTimestamp" DESC
-        )
-        SELECT * FROM rankedMessages
-        ORDER BY "updatedAt" DESC NULLS LAST;
+      WITH rankedMessages AS (
+        SELECT DISTINCT ON ("Message"."key"->>'remoteJid') 
+          "Contact"."id" as "contactId",
+          "Message"."key"->>'remoteJid' as "remoteJid",
+          CASE 
+            WHEN "Message"."key"->>'remoteJid' LIKE '%@g.us' THEN COALESCE("Chat"."name", "Contact"."pushName")
+            ELSE COALESCE("Contact"."pushName", "Message"."pushName")
+          END as "pushName",
+          "Contact"."profilePicUrl",
+          COALESCE(
+            to_timestamp("Message"."messageTimestamp"::double precision), 
+            "Contact"."updatedAt"
+          ) as "updatedAt",
+          "Chat"."name" as "pushName",
+          "Chat"."createdAt" as "windowStart",
+          "Chat"."createdAt" + INTERVAL '24 hours' as "windowExpires",
+          "Chat"."unreadMessages" as "unreadMessages",
+          CASE WHEN "Chat"."createdAt" + INTERVAL '24 hours' > NOW() THEN true ELSE false END as "windowActive",
+          "Message"."id" AS "lastMessageId",
+          "Message"."key" AS "lastMessage_key",
+          CASE
+            WHEN "Message"."key"->>'fromMe' = 'true' THEN 'Você'
+            ELSE "Message"."pushName"
+          END AS "lastMessagePushName",
+          "Message"."participant" AS "lastMessageParticipant",
+          "Message"."messageType" AS "lastMessageMessageType",
+          "Message"."message" AS "lastMessageMessage",
+          "Message"."contextInfo" AS "lastMessageContextInfo",
+          "Message"."source" AS "lastMessageSource",
+          "Message"."messageTimestamp" AS "lastMessageMessageTimestamp",
+          "Message"."instanceId" AS "lastMessageInstanceId",
+          "Message"."sessionId" AS "lastMessageSessionId",
+          "Message"."status" AS "lastMessageStatus"
+        FROM "Message"
+        LEFT JOIN "Contact" ON "Contact"."remoteJid" = "Message"."key"->>'remoteJid' AND "Contact"."instanceId" = "Message"."instanceId"
+        LEFT JOIN "Chat" ON "Chat"."remoteJid" = "Message"."key"->>'remoteJid' AND "Chat"."instanceId" = "Message"."instanceId"
+        WHERE "Message"."instanceId" = ${this.instanceId}
+        ${remoteJid ? Prisma.sql`AND "Message"."key"->>'remoteJid' = ${remoteJid}` : Prisma.sql``}
+        ${timestampFilter}
+        ORDER BY "Message"."key"->>'remoteJid', "Message"."messageTimestamp" DESC
+      )
+      SELECT * FROM rankedMessages 
+      ORDER BY "updatedAt" DESC NULLS LAST
+      ${limit}
+      ${offset};
     `;
 
     if (results && isArray(results) && results.length > 0) {
@@ -740,7 +794,7 @@ export class ChannelStartupService {
         const lastMessage = contact.lastMessageId
           ? {
               id: contact.lastMessageId,
-              key: contact.lastMessageKey,
+              key: contact.lastMessage_key,
               pushName: contact.lastMessagePushName,
               participant: contact.lastMessageParticipant,
               messageType: contact.lastMessageMessageType,
@@ -755,7 +809,7 @@ export class ChannelStartupService {
           : undefined;
 
         return {
-          id: contact.id,
+          id: contact.contactId || null,
           remoteJid: contact.remoteJid,
           pushName: contact.pushName,
           profilePicUrl: contact.profilePicUrl,
@@ -764,6 +818,8 @@ export class ChannelStartupService {
           windowExpires: contact.windowExpires,
           windowActive: contact.windowActive,
           lastMessage: lastMessage ? this.cleanMessageData(lastMessage) : undefined,
+          unreadCount: contact.unreadMessages,
+          isSaved: !!contact.contactId,
         };
       });
 
@@ -771,5 +827,29 @@ export class ChannelStartupService {
     }
 
     return [];
+  }
+
+  public hasValidMediaContent(message: any): boolean {
+    if (!message?.message) return false;
+
+    const msg = message.message;
+
+    // Se só tem messageContextInfo, não é mídia válida
+    if (Object.keys(msg).length === 1 && Object.prototype.hasOwnProperty.call(msg, 'messageContextInfo')) {
+      return false;
+    }
+
+    // Verifica se tem pelo menos um tipo de mídia válido
+    const mediaTypes = [
+      'imageMessage',
+      'videoMessage',
+      'stickerMessage',
+      'documentMessage',
+      'documentWithCaptionMessage',
+      'ptvMessage',
+      'audioMessage',
+    ];
+
+    return mediaTypes.some((type) => msg[type] && Object.keys(msg[type]).length > 0);
   }
 }
