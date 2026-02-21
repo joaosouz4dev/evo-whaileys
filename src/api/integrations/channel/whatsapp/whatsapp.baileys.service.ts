@@ -4198,11 +4198,27 @@ export class BaileysStartupService extends ChannelStartupService {
     }
   }
 
+  private async ensureAppStateKeyAvailable() {
+    const keyId = this.instance.authState?.state?.creds?.myAppStateKeyId;
+    const keyStore = this.instance.authState?.state?.keys;
+
+    if (!keyId || !keyStore) {
+      throw new BadRequestException(
+        'Session not fully synced. Please wait for sync to complete or reconnect the instance.',
+      );
+    }
+
+    const appStateKeys = await keyStore.get('app-state-sync-key', [keyId]);
+    if (!appStateKeys?.[keyId]) {
+      throw new BadRequestException(
+        'Session keys missing. Reconnect the instance to resync the app state before updating the profile.',
+      );
+    }
+  }
+
   public async updateProfileName(name: string) {
     try {
-      if (!this.instance.authState?.state?.creds?.myAppStateKeyId) {
-        throw new Error('Session not fully synced. Please wait for sync to complete or reconnect the instance.');
-      }
+      await this.ensureAppStateKeyAvailable();
       await this.client.updateProfileName(name);
 
       return { update: 'success' };
@@ -4213,9 +4229,7 @@ export class BaileysStartupService extends ChannelStartupService {
 
   public async updateProfileStatus(status: string) {
     try {
-      if (!this.instance.authState?.state?.creds?.myAppStateKeyId) {
-        throw new Error('Session not fully synced. Please wait for sync to complete or reconnect the instance.');
-      }
+      await this.ensureAppStateKeyAvailable();
       await this.client.updateProfileStatus(status);
 
       return { update: 'success' };
