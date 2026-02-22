@@ -4220,6 +4220,35 @@ export class BaileysStartupService extends ChannelStartupService {
     }
   }
 
+  private isHttpException(error: unknown): error is { status: number } {
+    return (
+      typeof error === 'object' &&
+      error !== null &&
+      'status' in error &&
+      typeof (error as { status: unknown }).status === 'number'
+    );
+  }
+
+  private getErrorDetails(error: unknown): string {
+    if (error instanceof Error) {
+      return error.message;
+    }
+
+    if (typeof error === 'string') {
+      return error;
+    }
+
+    if (typeof error === 'object' && error !== null) {
+      try {
+        return JSON.stringify(error);
+      } catch {
+        return String(error);
+      }
+    }
+
+    return String(error);
+  }
+
   public async updateProfileName(name: string) {
     try {
       await this.ensureAppStateKeyAvailable();
@@ -4227,7 +4256,11 @@ export class BaileysStartupService extends ChannelStartupService {
 
       return { update: 'success' };
     } catch (error) {
-      throw new InternalServerErrorException('Error updating profile name', error.toString());
+      if (this.isHttpException(error)) {
+        throw error;
+      }
+
+      throw new InternalServerErrorException('Error updating profile name', this.getErrorDetails(error));
     }
   }
 
@@ -4238,7 +4271,11 @@ export class BaileysStartupService extends ChannelStartupService {
 
       return { update: 'success' };
     } catch (error) {
-      throw new InternalServerErrorException('Error updating profile status', error.toString());
+      if (this.isHttpException(error)) {
+        throw error;
+      }
+
+      throw new InternalServerErrorException('Error updating profile status', this.getErrorDetails(error));
     }
   }
 
