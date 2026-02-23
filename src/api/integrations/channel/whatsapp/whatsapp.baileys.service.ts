@@ -532,8 +532,21 @@ export class BaileysStartupService extends ChannelStartupService {
       }
 
       const statusCode = (lastDisconnect?.error as Boom)?.output?.statusCode;
-      const codesToNotReconnect = [DisconnectReason.loggedOut, DisconnectReason.forbidden, 402, 406];
-      const shouldReconnect = !codesToNotReconnect.includes(statusCode);
+      const streamErrorContent = (lastDisconnect?.error as Boom & { data?: { content?: Array<{ tag?: string }> } })
+        ?.data?.content;
+      const normalizedStatusCode =
+        statusCode ??
+        (Array.isArray(streamErrorContent) && streamErrorContent.some((item) => item?.tag === 'conflict')
+          ? DisconnectReason.connectionReplaced
+          : undefined);
+      const codesToNotReconnect = [
+        DisconnectReason.loggedOut,
+        DisconnectReason.forbidden,
+        DisconnectReason.connectionReplaced,
+        402,
+        406,
+      ];
+      const shouldReconnect = !codesToNotReconnect.includes(normalizedStatusCode);
 
       // FIX: Do not reconnect if it's the initial connection (waiting for QR code)
       // This prevents infinite loop that blocks QR code generation
@@ -546,15 +559,20 @@ export class BaileysStartupService extends ChannelStartupService {
 
       // reconnect if not logged out
       if (shouldReconnect) {
-        this.logger.warn(`Connection lost (status: ${statusCode}), reconnecting...`);
+        this.logger.warn(`Connection lost (status: ${normalizedStatusCode}), reconnecting...`);
         await this.connectToWhatsapp(this.phoneNumber);
       } else {
-        this.logger.info(`Skipping reconnection for status code ${statusCode} (code is in codesToNotReconnect list)`);
+        if (normalizedStatusCode === DisconnectReason.connectionReplaced) {
+          this.logger.warn('Connection replaced by another session. Auto-reconnect disabled to avoid conflict loop.');
+        }
+        this.logger.info(
+          `Skipping reconnection for status code ${normalizedStatusCode} (code is in codesToNotReconnect list)`,
+        );
         this.sendDataWebhook(Events.STATUS_INSTANCE, {
           instance: this.instance.name,
           status: 'closed',
           disconnectionAt: new Date(),
-          disconnectionReasonCode: statusCode,
+          disconnectionReasonCode: normalizedStatusCode,
           disconnectionObject: JSON.stringify(lastDisconnect),
         });
 
@@ -563,7 +581,7 @@ export class BaileysStartupService extends ChannelStartupService {
           data: {
             connectionStatus: 'close',
             disconnectionAt: new Date(),
-            disconnectionReasonCode: statusCode,
+            disconnectionReasonCode: normalizedStatusCode,
             disconnectionObject: JSON.stringify(lastDisconnect),
           },
         });
