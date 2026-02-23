@@ -91,7 +91,7 @@ import { useMultiFileAuthStateRedisDb } from '@utils/use-multi-file-auth-state-r
 import axios from 'axios';
 import { spawn } from 'child_process';
 import { isArray, isBase64, isURL } from 'class-validator';
-import { createHash } from 'crypto';
+import { createDecipheriv, createHash } from 'crypto';
 import EventEmitter2 from 'eventemitter2';
 import ffmpeg from 'fluent-ffmpeg';
 import FormData from 'form-data';
@@ -174,7 +174,7 @@ const decryptPollVote = (
   },
 ): { selectedOptions: Uint8Array[] } | undefined => {
   try {
-    const { pollEncKey, pollCreatorJid, pollMsgId, voterJid } = options;
+    const { pollEncKey, pollMsgId, voterJid } = options;
     const enc = pollVote.vote?.encPayload;
     const iv = pollVote.vote?.encIv;
 
@@ -193,8 +193,7 @@ const decryptPollVote = (
     const decKey = hkdf(pollEncKey, 32, { info });
 
     // Decrypt using AES-GCM
-    const crypto = require('crypto');
-    const decipher = crypto.createDecipheriv('aes-256-gcm', decKey, iv);
+    const decipher = createDecipheriv('aes-256-gcm', decKey, iv);
 
     // Extract auth tag (last 16 bytes)
     const encData = Buffer.from(enc);
@@ -319,6 +318,14 @@ export class BaileysStartupService extends ChannelStartupService {
   private isNewLogin = false; // Flag to track new login process for proper sync
   private logBaileys = this.configService.get<Log>('LOG').BAILEYS;
   private eventProcessingQueue: Promise<void> = Promise.resolve();
+  private appStateResyncPromise: Promise<void> | null = null;
+  private readonly APP_STATE_SYNC_COLLECTIONS = [
+    'critical_block',
+    'critical_unblock_low',
+    'regular_high',
+    'regular_low',
+    'regular',
+  ] as const;
 
   // Cache TTL constants (in seconds)
   private readonly MESSAGE_CACHE_TTL_SECONDS = 5 * 60; // 5 minutes - avoid duplicate message processing
@@ -582,6 +589,11 @@ export class BaileysStartupService extends ChannelStartupService {
       // Reset new login flag only if app state is synced
       if (this.instance.authState?.state?.creds?.myAppStateKeyId) {
         this.isNewLogin = false;
+      }
+      try {
+        await this.resyncAppStateIfPossible();
+      } catch (error) {
+        this.logger.warn(`Error resyncing app state on open: ${this.getErrorDetails(error)}`);
       }
       this.disconnectionTracker.del(`403:${this.instanceId}`);
       this.instance.wuid = this.client.user.id.replace(/:\d+/, '');
@@ -4202,22 +4214,59 @@ export class BaileysStartupService extends ChannelStartupService {
     }
   }
 
-  private async ensureAppStateKeyAvailable() {
+  private async hasAppStateSyncKey() {
     const keyId = this.instance.authState?.state?.creds?.myAppStateKeyId;
     const keyStore = this.instance.authState?.state?.keys;
 
     if (!keyId || !keyStore) {
-      throw new BadRequestException(
-        'Session not fully synced. Please wait for sync to complete or reconnect the instance.',
-      );
+      return false;
     }
 
     const appStateKeys = await keyStore.get('app-state-sync-key', [keyId]);
-    if (!appStateKeys?.[keyId]) {
+    return Boolean(appStateKeys?.[keyId]);
+  }
+
+  private async resyncAppStateIfPossible() {
+    if (!this.client || this.stateConnection.state !== 'open') {
+      return;
+    }
+
+    if (this.appStateResyncPromise) {
+      await this.appStateResyncPromise;
+      return;
+    }
+
+    this.appStateResyncPromise = (async () => {
+      this.logger.info('Resyncing app state before profile update');
+      await this.client.resyncAppState(this.APP_STATE_SYNC_COLLECTIONS, true);
+      await this.instance.authState.saveCreds();
+    })().finally(() => {
+      this.appStateResyncPromise = null;
+    });
+
+    await this.appStateResyncPromise;
+  }
+
+  private async ensureAppStateKeyAvailable() {
+    if (await this.hasAppStateSyncKey()) {
+      return;
+    }
+
+    await this.resyncAppStateIfPossible();
+
+    if (await this.hasAppStateSyncKey()) {
+      return;
+    }
+
+    if (this.stateConnection.state !== 'open') {
       throw new BadRequestException(
-        'Session keys missing. Reconnect the instance to resync the app state before updating the profile.',
+        'Session not fully synced. Open the instance connection before updating the profile.',
       );
     }
+
+    throw new BadRequestException(
+      'Session keys missing. Reconnect the instance to resync the app state before updating the profile.',
+    );
   }
 
   private isHttpException(error: unknown): error is { status: number } {
@@ -5082,6 +5131,9 @@ export class BaileysStartupService extends ChannelStartupService {
     _message: proto.IMessage,
     _extraAttrs: any,
   ): Promise<any> {
+    void _jids;
+    void _message;
+    void _extraAttrs;
     // createParticipantNodes is not available in whaileys
     throw new Error('createParticipantNodes is not available in this version');
   }
@@ -5106,6 +5158,9 @@ export class BaileysStartupService extends ChannelStartupService {
   }
 
   public async baileysSignalRepositoryDecryptMessage(_jid: string, _type: 'pkmsg' | 'msg', _ciphertext: string) {
+    void _jid;
+    void _type;
+    void _ciphertext;
     // signalRepository.decryptMessage is not available in whaileys
     throw new Error('signalRepository.decryptMessage is not available in this version');
   }
