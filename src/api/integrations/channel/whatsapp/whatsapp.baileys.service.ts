@@ -326,6 +326,21 @@ export class BaileysStartupService extends ChannelStartupService {
     'regular_low',
     'regular',
   ] as const;
+  private readonly NON_RECONNECTABLE_CODES = new Set<number>([
+    DisconnectReason.loggedOut,
+    DisconnectReason.forbidden,
+    DisconnectReason.connectionReplaced,
+    DisconnectReason.badSession,
+    DisconnectReason.multideviceMismatch,
+    402,
+    406,
+  ]);
+  private readonly TRANSIENT_RECONNECT_CODES = new Set<number>([
+    DisconnectReason.connectionLost,
+    DisconnectReason.connectionClosed,
+    DisconnectReason.restartRequired,
+    DisconnectReason.unavailableService,
+  ]);
 
   // Cache TTL constants (in seconds)
   private readonly MESSAGE_CACHE_TTL_SECONDS = 5 * 60; // 5 minutes - avoid duplicate message processing
@@ -337,6 +352,18 @@ export class BaileysStartupService extends ChannelStartupService {
 
   public get connectionStatus() {
     return this.stateConnection;
+  }
+
+  private shouldReconnect(statusCode?: number) {
+    if (statusCode === undefined) {
+      return true;
+    }
+
+    if (this.NON_RECONNECTABLE_CODES.has(statusCode)) {
+      return false;
+    }
+
+    return this.TRANSIENT_RECONNECT_CODES.has(statusCode);
   }
 
   public async logoutInstance() {
@@ -539,14 +566,7 @@ export class BaileysStartupService extends ChannelStartupService {
         (Array.isArray(streamErrorContent) && streamErrorContent.some((item) => item?.tag === 'conflict')
           ? DisconnectReason.connectionReplaced
           : undefined);
-      const codesToNotReconnect = [
-        DisconnectReason.loggedOut,
-        DisconnectReason.forbidden,
-        DisconnectReason.connectionReplaced,
-        402,
-        406,
-      ];
-      const shouldReconnect = !codesToNotReconnect.includes(normalizedStatusCode);
+      const shouldReconnect = this.shouldReconnect(normalizedStatusCode);
 
       // FIX: Do not reconnect if it's the initial connection (waiting for QR code)
       // This prevents infinite loop that blocks QR code generation
@@ -565,9 +585,7 @@ export class BaileysStartupService extends ChannelStartupService {
         if (normalizedStatusCode === DisconnectReason.connectionReplaced) {
           this.logger.warn('Connection replaced by another session. Auto-reconnect disabled to avoid conflict loop.');
         }
-        this.logger.info(
-          `Skipping reconnection for status code ${normalizedStatusCode} (code is in codesToNotReconnect list)`,
-        );
+        this.logger.info(`Skipping reconnection for status code ${normalizedStatusCode} (non-transient status code)`);
         this.sendDataWebhook(Events.STATUS_INSTANCE, {
           instance: this.instance.name,
           status: 'closed',
@@ -4253,16 +4271,16 @@ export class BaileysStartupService extends ChannelStartupService {
     }
   }
 
-  private async hasAppStateSyncKey() {
+  private async getAppStateKeyDiagnostics() {
     const keyId = this.instance.authState?.state?.creds?.myAppStateKeyId;
     const keyStore = this.instance.authState?.state?.keys;
 
     if (!keyId || !keyStore) {
-      return false;
+      return { keyId: keyId ?? null, hasKey: false };
     }
 
     const appStateKeys = await keyStore.get('app-state-sync-key', [keyId]);
-    return Boolean(appStateKeys?.[keyId]);
+    return { keyId, hasKey: Boolean(appStateKeys?.[keyId]) };
   }
 
   private async resyncAppStateIfPossible() {
@@ -4287,15 +4305,26 @@ export class BaileysStartupService extends ChannelStartupService {
   }
 
   private async ensureAppStateKeyAvailable() {
-    if (await this.hasAppStateSyncKey()) {
+    const initialDiagnostics = await this.getAppStateKeyDiagnostics();
+
+    if (initialDiagnostics.hasKey) {
       return;
     }
 
     await this.resyncAppStateIfPossible();
 
-    if (await this.hasAppStateSyncKey()) {
+    const postResyncDiagnostics = await this.getAppStateKeyDiagnostics();
+
+    if (postResyncDiagnostics.hasKey) {
       return;
     }
+
+    this.logger.warn({
+      message: 'App-state key still missing after resync attempt',
+      keyId: postResyncDiagnostics.keyId,
+      hasKey: postResyncDiagnostics.hasKey,
+      connectionState: this.stateConnection.state,
+    });
 
     if (this.stateConnection.state !== 'open') {
       throw new BadRequestException(
