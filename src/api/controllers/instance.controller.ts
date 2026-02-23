@@ -10,10 +10,10 @@ import { Events, Integration, wa } from '@api/types/wa.types';
 import { Auth, Chatwoot, ConfigService, HttpServer, WaBusiness } from '@config/env.config';
 import { Logger } from '@config/logger.config';
 import { BadRequestException, InternalServerErrorException, UnauthorizedException } from '@exceptions';
-import { delay } from 'whaileys';
 import { isArray, isURL } from 'class-validator';
 import EventEmitter2 from 'eventemitter2';
 import { v4 } from 'uuid';
+import { delay } from 'whaileys';
 
 import { ProxyController } from './proxy.controller';
 
@@ -384,6 +384,30 @@ export class InstanceController {
           status: state,
         },
       };
+    } catch (error) {
+      this.logger.error(error);
+      return { error: true, message: error.toString() };
+    }
+  }
+
+  public async forceSessionResync({ instanceName }: InstanceDto) {
+    try {
+      const instance = this.waMonitor.waInstances[instanceName];
+      const state = instance?.connectionStatus?.state;
+
+      if (!state) {
+        throw new BadRequestException('The "' + instanceName + '" instance does not exist');
+      }
+
+      if (state !== 'open') {
+        throw new BadRequestException('The "' + instanceName + '" instance is not connected');
+      }
+
+      if (typeof instance.forceSessionResync !== 'function') {
+        throw new BadRequestException('Session resync is not available for this integration');
+      }
+
+      return await instance.forceSessionResync();
     } catch (error) {
       this.logger.error(error);
       return { error: true, message: error.toString() };

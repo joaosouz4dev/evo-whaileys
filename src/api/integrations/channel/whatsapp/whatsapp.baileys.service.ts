@@ -890,6 +890,27 @@ export class BaileysStartupService extends ChannelStartupService {
     }
   }
 
+  public async forceSessionResync() {
+    if (this.stateConnection.state !== 'open') {
+      throw new BadRequestException('Session not connected');
+    }
+
+    try {
+      await this.resyncAppStateIfPossible();
+
+      return {
+        status: 'SUCCESS',
+        error: false,
+        response: {
+          message: 'Session resync requested',
+          instanceName: this.instance.name,
+        },
+      };
+    } catch (error) {
+      throw new InternalServerErrorException('Error forcing session resync', this.getErrorDetails(error));
+    }
+  }
+
   private readonly chatHandle = {
     'chats.upsert': async (chats: Chat[]) => {
       const existingChatIds = await this.prismaRepository.chat.findMany({
